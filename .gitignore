@@ -1,0 +1,6 @@
+build/
+build-tools/
+node_modules/
+*.idsig
+.DS_Store
+Thumbs.db

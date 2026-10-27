@@ -1,0 +1,27 @@
+{
+  "name": "Manhunt - Real-Life GPS Pursuit",
+  "short_name": "Manhunt",
+  "description": "Tactical real-life outdoor Manhunt game with live seeker radar and periodic runner pings.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0e14",
+  "theme_color": "#00ffaa",
+  "icons": [
+    {
+      "src": "./assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./assets/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["games", "sports", "action"],
+  "screenshots": []
+}

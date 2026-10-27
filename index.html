@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0e14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Manhunt">
+  <meta name="description" content="Tactical real-life outdoor Manhunt game with live seeker radar and periodic runner pings.">
+
+  <title>Manhunt - GPS Pursuit</title>
+
+  <!-- PWA Manifest & App Icons -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+
+  <!-- Leaflet Tactical Map CSS -->
+  <link rel="stylesheet" href="css/leaflet.css">
+
+  <!-- Core Tactical Stylesheet -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="theme-night-vision">
+
+  <div id="app-viewport">
+
+    <!-- Toast Notifications Overlay -->
+    <div id="toast-container"></div>
+
+    <!-- ====================================================================
+         SCREEN 1: LOBBY & JOIN SCREEN
+         ==================================================================== -->
+    <section id="screen-lobby" class="app-screen active">
+      <header class="lobby-header">
+        <div class="game-logo">
+          <span>📡</span> MANHUNT
+        </div>
+        <div class="game-subhead">Tactical Real-World GPS Pursuit</div>
+      </header>
+
+      <div class="lobby-container">
+        <!-- Nickname Input Card -->
+        <div class="card">
+          <div class="card-title">Agent Profile</div>
+          <div class="input-group">
+            <label class="input-label" for="input-nickname">Callsign / Nickname</label>
+            <input type="text" id="input-nickname" class="tactical-input" placeholder="e.g. Ghost, Hunter, Raptor" maxlength="15" value="Player1">
+          </div>
+
+          <label class="input-label">Select Tactical Role</label>
+          <div class="role-picker">
+            <button type="button" class="role-select-btn selected" data-role="runner">
+              <div class="role-icon-box">🏃</div>
+              <div class="role-title">RUNNER</div>
+              <div class="role-detail">Stealth evasion; periodic GPS snapshot beacon</div>
+            </button>
+            <button type="button" class="role-select-btn" data-role="seeker">
+              <div class="role-icon-box">🎯</div>
+              <div class="role-title">SEEKER</div>
+              <div class="role-detail">Continuous satellite tracking & proximity radar</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Host New Room Card -->
+        <div class="card">
+          <div class="card-title">Host New Operation</div>
+          <p style="font-size:0.8rem; color:var(--theme-text-muted); margin-bottom:14px;">
+            Create a private room code and invite friends to join anywhere in the world.
+          </p>
+          <button type="button" id="btn-create-room" class="btn-primary">
+            <span>➕</span> CREATE OPERATION
+          </button>
+        </div>
+
+        <!-- Join Existing Room Card -->
+        <div class="card">
+          <div class="card-title">Join Existing Operation</div>
+          <div class="input-group">
+            <label class="input-label" for="input-join-code">4-Letter Room Code</label>
+            <input type="text" id="input-join-code" class="tactical-input input-code" placeholder="ABCD" maxlength="6">
+          </div>
+          <button type="button" id="btn-join-room" class="btn-secondary">
+            <span>🔗</span> JOIN ROOM
+          </button>
+        </div>
+
+        <!-- Footer Shortcuts -->
+        <div class="lobby-footer">
+          <button type="button" id="btn-open-settings" class="text-btn">
+            <span>⚙️</span> Match Settings & Themes
+          </button>
+          <a href="./privacy-policy.html" class="text-btn">
+            <span>🛡️</span> Privacy Policy
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         SCREEN 2: WAITING ROOM LOBBY
+         ==================================================================== -->
+    <section id="screen-waiting" class="app-screen">
+      <div class="ticket-wrapper">
+        <div class="ticket-card">
+          <div class="ticket-header-label">
+            <span>🔒 SECURE TACTICAL READOUT</span>
+          </div>
+          <div id="waiting-room-code" class="ticket-room-code">----</div>
+          <div>
+            <button type="button" id="btn-copy-room" class="ticket-copy-btn">
+              <span>📋</span> COPY ACCESS CODE
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Host Rules Customization Card (Visible only to Host) -->
+      <div id="lobby-host-config-card" class="card" style="display:none; margin: 0 16px 16px;">
+        <div class="card-title" style="display:flex; align-items:center; gap:8px;">
+          <span>⚙️</span> OPERATION RULES (HOST CONTROLS)
+        </div>
+        <div style="font-size:0.75rem; color:var(--theme-text-secondary); margin-bottom:12px;">
+          Customize tracking intervals & timers for all squad members.
+        </div>
+        
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="input-group" style="margin-bottom:0;">
+            <label class="input-label" for="lobby-seeker-mode">Seeker Tracking</label>
+            <select id="lobby-seeker-mode" class="tactical-input">
+              <option value="live" selected>Live Continuous (2s)</option>
+              <option value="60">Periodic: 1 Min</option>
+              <option value="120">Periodic: 2 Min</option>
+              <option value="300">Periodic: 5 Min</option>
+              <option value="600">Periodic: 10 Min</option>
+            </select>
+          </div>
+
+          <div class="input-group" style="margin-bottom:0;">
+            <label class="input-label" for="lobby-runner-interval">Runner Ping</label>
+            <select id="lobby-runner-interval" class="tactical-input">
+              <option value="60">Every 1 Min</option>
+              <option value="120">Every 2 Min</option>
+              <option value="180">Every 3 Min</option>
+              <option value="300" selected>Every 5 Min (Standard)</option>
+              <option value="600">Every 10 Min</option>
+              <option value="900">Every 15 Min</option>
+            </select>
+          </div>
+
+          <div class="input-group" style="margin-bottom:0;">
+            <label class="input-label" for="lobby-grace-period">Grace Period</label>
+            <select id="lobby-grace-period" class="tactical-input">
+              <option value="0">None (Instant)</option>
+              <option value="60">1 Min Head Start</option>
+              <option value="120">2 Min Head Start</option>
+              <option value="180" selected>3 Min Head Start</option>
+              <option value="300">5 Min Head Start</option>
+            </select>
+          </div>
+
+          <div class="input-group" style="margin-bottom:0;">
+            <label class="input-label" for="lobby-match-duration">Match Duration</label>
+            <select id="lobby-match-duration" class="tactical-input">
+              <option value="900">15 Minutes</option>
+              <option value="1800">30 Minutes</option>
+              <option value="2700" selected>45 Minutes</option>
+              <option value="3600">60 Minutes</option>
+              <option value="0">Unlimited</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="input-group" style="margin-top:10px; margin-bottom:0;">
+          <label class="input-label" for="lobby-boundary">Play Boundary Radius</label>
+          <select id="lobby-boundary" class="tactical-input">
+            <option value="0">Off (No Boundary)</option>
+            <option value="500">500 Meters</option>
+            <option value="1000">1.0 Kilometer</option>
+            <option value="1500" selected>1.5 Kilometers</option>
+            <option value="3000">3.0 Kilometers</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Participant Rules Overview Card (Visible only to Non-Hosts) -->
+      <div id="lobby-participant-rules-card" class="card" style="display:none; margin: 0 16px 16px;">
+        <div class="card-title" style="display:flex; align-items:center; gap:8px;">
+          <span>📋</span> OPERATION PARAMETERS
+        </div>
+        <div style="font-size:0.75rem; color:var(--theme-text-secondary); margin-bottom:10px;">
+          Rules established by Host:
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px;" id="lobby-participant-chips">
+          <span class="status-badge status-online" id="chip-seeker-mode">SEEKER: LIVE</span>
+          <span class="status-badge status-online" id="chip-runner-ping">RUNNER PING: 5M</span>
+          <span class="status-badge status-online" id="chip-grace-period">GRACE: 3M</span>
+          <span class="status-badge status-online" id="chip-match-duration">DURATION: 45M</span>
+          <span class="status-badge status-online" id="chip-boundary">BOUNDARY: 1.5KM</span>
+        </div>
+      </div>
+
+      <div class="roster-container">
+        <div class="card-title" style="margin-bottom:12px;">Active Squad Roster</div>
+        <div id="waiting-player-list">
+          <!-- Dynamically populated -->
+        </div>
+
+        <div style="margin-top:24px;">
+          <button type="button" id="btn-start-match" class="btn-primary" style="display:none;">
+            <span>🚀</span> LAUNCH OPERATION
+          </button>
+          <div id="waiting-for-host-text" style="text-align:center; color:var(--theme-text-muted); font-size:0.85rem; padding:12px;">
+            Waiting for Host to start the operation...
+          </div>
+          <button type="button" id="btn-leave-match" class="btn-secondary" style="margin-top:10px;">
+            <span>🚪</span> LEAVE ROOM
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         SCREEN 3: TACTICAL ACTIVE HUD & RADAR MAP
+         ==================================================================== -->
+    <section id="screen-hud" class="app-screen">
+      <!-- Fullscreen Map Background -->
+      <div id="map-view"></div>
+
+      <!-- Floating Map Zoom & Fitting Controls -->
+      <div class="map-floating-controls">
+        <button type="button" id="btn-zoom-in" class="map-zoom-btn" title="Zoom In" aria-label="Zoom In">➕</button>
+        <button type="button" id="btn-zoom-out" class="map-zoom-btn" title="Zoom Out" aria-label="Zoom Out">➖</button>
+        <button type="button" id="btn-fit-all-float" class="map-zoom-btn" title="Fit All Squad Members" aria-label="Fit All">🗺️</button>
+      </div>
+
+      <!-- Operation Paused Overlay -->
+      <div id="hud-paused-overlay" class="hud-paused-overlay">
+        <div style="font-size:3rem; margin-bottom:12px;">⏸️</div>
+        <h2 style="color:var(--theme-warning); font-size:1.5rem; font-weight:900; letter-spacing:1px; margin-bottom:8px;">OPERATION SUSPENDED</h2>
+        <p style="color:var(--theme-text-secondary); font-size:0.88rem; max-width:320px; margin-bottom:20px; line-height:1.5;">
+          The mission host has paused the operation. All GPS pings and proximity timers are frozen.
+        </p>
+        <div id="paused-host-resume-container" style="display:none;">
+          <button type="button" id="btn-resume-match-overlay" class="btn-primary" style="background:var(--theme-gradient-primary);">
+            ▶️ RESUME OPERATION
+          </button>
+        </div>
+      </div>
+
+      <!-- Top HUD Header Overlay -->
+      <div class="hud-header-overlay">
+        <div class="hud-top-bar">
+          <div id="status-connection" class="status-badge status-online">ONLINE</div>
+          <div class="hud-clock" id="hud-game-timer">45:00</div>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <button type="button" id="btn-host-controls" class="hud-host-btn" style="display:none;">
+              👑 HOST
+            </button>
+            <button type="button" id="btn-target-selector" class="hud-pill-btn" style="display:none;">
+              🎯 TARGET: AUTO
+            </button>
+            <button type="button" id="btn-open-settings-hud" class="text-btn" style="padding:4px 6px;">
+              ⚙️
+            </button>
+            <button type="button" id="btn-exit-match-hud" class="hud-exit-btn">
+              🚪 EXIT
+            </button>
+          </div>
+        </div>
+
+        <!-- Grace Period Banner -->
+        <div id="grace-period-banner" class="grace-banner">
+          <div class="grace-top">
+            <span>⏳ HEAD START GRACE PERIOD</span>
+            <span id="grace-countdown-timer">03:00</span>
+          </div>
+          <div class="grace-role-label">Runners have a head start! Wait for timer.</div>
+        </div>
+
+        <!-- Runner Ping Reveal Banner -->
+        <div id="hud-ping-banner" class="hud-ping-banner">
+          <div class="ping-timer-row">
+            <span>📍 Runner Ping Broadcast</span>
+            <span id="hud-ping-timer" class="ping-time-val">05:00</span>
+          </div>
+          <div class="ping-progress-track">
+            <div id="hud-ping-progress" class="ping-progress-fill"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom HUD Command Console Overlay -->
+      <div class="hud-bottom-overlay">
+        <!-- Radar Target Info -->
+        <div class="hud-radar-console">
+          <div class="radar-target-block">
+            <div class="radar-subhead">CLOSEST OPPONENT</div>
+            <div id="radar-distance-value" class="radar-distance">--</div>
+            <div id="radar-target-name" class="radar-target-name">SCANNING SENSORS...</div>
+          </div>
+          <div class="radar-compass-hub">
+            <div id="radar-direction-arrow" class="radar-direction-arrow">▲</div>
+          </div>
+        </div>
+
+        <!-- Seeker Tag Button -->
+        <button type="button" id="btn-tag-runner" class="btn-tag" disabled>
+          🎯 TAG RUNNER (RANGE: 15m)
+        </button>
+
+        <!-- Action Buttons Row -->
+        <div class="hud-actions-row">
+          <button type="button" id="btn-recenter" class="hud-action-btn active">
+            <span>🎯</span> Recenter
+          </button>
+          <button type="button" id="btn-fit-all" class="hud-action-btn">
+            <span>🗺️</span> Fit All
+          </button>
+          <button type="button" id="btn-open-targets" class="hud-action-btn">
+            <span>🎯</span> Targets
+          </button>
+          <button type="button" id="btn-panic-ping" class="hud-action-btn">
+            <span>📍</span> Flare
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         SCREEN 4: SETTINGS & THEMES CONFIGURATOR
+         ==================================================================== -->
+    <section id="screen-settings" class="app-screen">
+      <header class="settings-header">
+        <h2 style="font-size:1.15rem; font-weight:800; letter-spacing:1px;">OPERATION SETTINGS</h2>
+        <button type="button" id="btn-close-settings" class="text-btn" style="font-size:1.3rem;">✕</button>
+      </header>
+
+      <div class="settings-body">
+        <!-- Visual Themes -->
+        <div class="card">
+          <div class="card-title">Tactical Themes</div>
+          <div id="theme-picker-grid" class="theme-grid">
+            <!-- Populated dynamically with 5 themes -->
+          </div>
+        </div>
+
+        <!-- Rules & Intervals (Zero Extra Installations) -->
+        <div class="card">
+          <div class="card-title">Game Timers & Rules</div>
+
+          <div class="input-group">
+            <label class="input-label" for="setting-ping-interval">Runner Ping Interval</label>
+            <select id="setting-ping-interval" class="tactical-input">
+              <option value="30">Every 30 Seconds (Ultra Fast)</option>
+              <option value="60">Every 1 Minute</option>
+              <option value="120">Every 2 Minutes</option>
+              <option value="180">Every 3 Minutes</option>
+              <option value="300" selected>Every 5 Minutes (Standard Rule)</option>
+              <option value="600">Every 10 Minutes (Hardcore)</option>
+              <option value="900">Every 15 Minutes (Extreme Stealth)</option>
+            </select>
+          </div>
+
+          <div class="input-group">
+            <label class="input-label" for="setting-grace-period">Grace Period (Head Start)</label>
+            <select id="setting-grace-period" class="tactical-input">
+              <option value="0">None (Instant Release)</option>
+              <option value="60">1 Minute Head Start</option>
+              <option value="120">2 Minutes Head Start</option>
+              <option value="180" selected>3 Minutes Head Start (Standard)</option>
+              <option value="300">5 Minutes Head Start</option>
+            </select>
+          </div>
+
+          <div class="input-group">
+            <label class="input-label" for="setting-game-duration">Match Duration</label>
+            <select id="setting-game-duration" class="tactical-input">
+              <option value="900">15 Minutes</option>
+              <option value="1800">30 Minutes</option>
+              <option value="2700" selected>45 Minutes</option>
+              <option value="3600">60 Minutes (1 Hour)</option>
+              <option value="5400">90 Minutes</option>
+              <option value="0">Unlimited (Play until all caught)</option>
+            </select>
+          </div>
+
+          <div class="input-group">
+            <label class="input-label" for="setting-tag-distance">Tag Confirmation Radius</label>
+            <select id="setting-tag-distance" class="tactical-input">
+              <option value="10">10 Meters (Close Physical Tag)</option>
+              <option value="15" selected>15 Meters (Standard GPS)</option>
+              <option value="20">20 Meters (Leniency Mode)</option>
+              <option value="30">30 Meters (Open Field / Park)</option>
+            </select>
+          </div>
+
+          <div class="input-group">
+            <label class="input-label" for="setting-boundary">Play Boundary Radius</label>
+            <select id="setting-boundary" class="tactical-input">
+              <option value="0">Off (No Boundary)</option>
+              <option value="500">500 Meters (Neighborhood / Campus)</option>
+              <option value="1000">1 Kilometer (Large Park)</option>
+              <option value="1500" selected>1.5 Kilometers (District)</option>
+              <option value="3000">3 Kilometers (City Scale)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Sensory & Hardware Toggles -->
+        <div class="card">
+          <div class="card-title">Sensory Feedback</div>
+
+          <div class="toggle-row">
+            <div>
+              <div style="font-weight:700; font-size:0.9rem;">Tactical Audio Synthesizer</div>
+              <div style="font-size:0.75rem; color:var(--theme-text-muted);">Radar beeps, sirens, and ping pulses</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-sound" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="toggle-row">
+            <div>
+              <div style="font-weight:700; font-size:0.9rem;">Haptic Vibrations</div>
+              <div style="font-size:0.75rem; color:var(--theme-text-muted);">Vibrate phone on seeker proximity & pings</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-vibration" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div class="toggle-row">
+            <div>
+              <div style="font-weight:700; font-size:0.9rem;">Sandbox / Simulation Bots</div>
+              <div style="font-size:0.75rem; color:var(--theme-text-muted);">Spawn moving bots to test indoor or offline</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="setting-simulation">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <button type="button" id="btn-save-settings" class="btn-primary">
+          <span>💾</span> SAVE SETTINGS
+        </button>
+
+        <div style="display:flex; justify-content:space-between; margin-top:6px;">
+          <button type="button" id="btn-open-privacy" class="text-btn">
+            <span>🛡️</span> Privacy Policy
+          </button>
+          <button type="button" id="btn-reset-data" class="text-btn" style="color:#ff5555;">
+            <span>🔄</span> Restore Defaults
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         SCREEN 5: IN-APP PRIVACY POLICY
+         ==================================================================== -->
+    <section id="screen-privacy" class="app-screen">
+      <header class="settings-header">
+        <h2 style="font-size:1.15rem; font-weight:800; letter-spacing:1px;">PRIVACY POLICY</h2>
+        <button type="button" id="btn-close-privacy" class="text-btn" style="font-size:1.3rem;">✕</button>
+      </header>
+
+      <div class="settings-body" style="font-size:0.9rem; line-height:1.6;">
+        <div class="card">
+          <p style="color:var(--theme-primary); font-weight:700; margin-bottom:10px;">
+            Google Play & iOS Location Privacy Commitment
+          </p>
+          <p style="color:var(--theme-text-muted); margin-bottom:12px;">
+            Manhunt is an active outdoor GPS pursuit game. We respect your digital privacy:
+          </p>
+          <ul style="padding-left:20px; color:var(--theme-text-muted); display:flex; flex-direction:column; gap:8px;">
+            <li><strong>Zero Permanent Tracking:</strong> Location coordinates are used in real-time exclusively while in an active match and are never stored on permanent databases.</li>
+            <li><strong>No Ads or Data Selling:</strong> We do not include third-party ad networks, tracking SDKs, or monetized data brokers.</li>
+            <li><strong>Ephemeral Nicknames:</strong> No email, password, or real name registration is ever required.</li>
+            <li><strong>Encrypted Transport:</strong> Room updates are transmitted over secure TLS/WSS connections directly between room participants.</li>
+          </ul>
+          <p style="margin-top:16px;">
+            <a href="./privacy-policy.html" target="_blank" style="color:var(--theme-primary); font-weight:700; text-decoration:none;">
+              Open Full Web Privacy Policy →
+            </a>
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================================
+         SCREEN 6: GAME OVER & VICTORY SCREEN
+         ==================================================================== -->
+    <section id="screen-gameover" class="app-screen">
+      <div class="lobby-container" style="justify-content:center; text-align:center;">
+        <div style="font-size:3.5rem; margin-bottom:10px;">🏆</div>
+        <h1 id="gameover-winner" style="color:var(--theme-primary); font-size:2rem; font-weight:900; letter-spacing:2px; margin-bottom:8px;">
+          VICTORY!
+        </h1>
+        <p id="gameover-desc" style="color:var(--theme-text-muted); font-size:0.95rem; margin-bottom:24px;">
+          Match completed.
+        </p>
+
+        <div id="gameover-stats" class="card" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:24px;">
+          <!-- Dynamically populated stats -->
+        </div>
+
+        <button type="button" id="btn-rematch" class="btn-primary">
+          <span>🔄</span> RETURN TO LOBBY
+        </button>
+      </div>
+    </section>
+
+    <!-- Captured Modal Overlay -->
+    <div id="modal-captured" class="modal-backdrop">
+      <div class="modal-content">
+        <div style="font-size:3rem; margin-bottom:10px;">🎯</div>
+        <h2 style="color:var(--theme-seeker); font-size:1.6rem; font-weight:900; margin-bottom:8px;">YOU WERE TAGGED!</h2>
+        <p style="color:var(--theme-text-muted); font-size:0.9rem; margin-bottom:20px;">
+          A seeker has successfully tagged your location. You are now captured.
+        </p>
+        <button type="button" id="btn-captured-continue" class="btn-primary" style="background:var(--theme-seeker); color:#fff;">
+          CONTINUE AS SPECTATOR
+        </button>
+      </div>
+    </div>
+
+    <!-- Confirm Exit / Abandon Match Modal -->
+    <div id="modal-confirm-exit" class="modal-backdrop">
+      <div class="modal-content">
+        <div style="font-size:2.6rem; margin-bottom:10px;">🚪</div>
+        <h2 style="font-size:1.3rem; font-weight:900; margin-bottom:8px;">ABANDON OPERATION?</h2>
+        <p style="color:var(--theme-text-secondary); font-size:0.85rem; margin-bottom:22px; line-height:1.5;">
+          Are you sure you want to exit the match? You will disconnect from the squad room and return to the lobby.
+        </p>
+        <div style="display:flex; gap:10px;">
+          <button type="button" id="btn-cancel-exit" class="btn-secondary" style="flex:1;">CANCEL</button>
+          <button type="button" id="btn-confirm-exit" class="btn-primary" style="flex:1; background:var(--theme-gradient-seeker); color:#fff;">LEAVE MATCH</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Target Selector Modal (Seeker Multi-Target Menu) -->
+    <div id="modal-target-selector" class="modal-backdrop">
+      <div class="modal-content" style="max-width:440px; text-align:left;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+          <div>
+            <h2 style="font-size:1.15rem; font-weight:900;">TARGET SELECTION</h2>
+            <div style="font-size:0.75rem; color:var(--theme-text-secondary);">Select a specific runner to lock your radar</div>
+          </div>
+          <button type="button" id="btn-close-target-selector" class="text-btn" style="font-size:1.3rem;">✕</button>
+        </div>
+        <div id="target-selection-list" style="max-height:300px; overflow-y:auto; display:flex; flex-direction:column; gap:8px;">
+          <!-- Dynamically populated with active runners -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Host In-Match Mission Control Modal -->
+    <div id="modal-host-controls" class="modal-backdrop">
+      <div class="modal-content" style="max-width:440px; text-align:left;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:1.4rem;">👑</span>
+            <div>
+              <h2 style="font-size:1.15rem; font-weight:900;">MISSION CONTROL</h2>
+              <div style="font-size:0.75rem; color:var(--theme-text-secondary);">Host tactical command & anti-foul authority</div>
+            </div>
+          </div>
+          <button type="button" id="btn-close-host-controls" class="text-btn" style="font-size:1.3rem;">✕</button>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:10px; margin: 12px 0 16px;">
+          <!-- Pause / Resume -->
+          <button type="button" id="btn-host-pause-toggle" class="btn-secondary" style="width:100%; justify-content:flex-start; padding:12px 16px; border-color:var(--theme-warning);">
+            <span id="host-pause-icon" style="font-size:1.2rem;">⏸️</span>
+            <div>
+              <div id="host-pause-title" style="font-weight:800; color:var(--theme-warning);">PAUSE OPERATION</div>
+              <div style="font-size:0.72rem; color:var(--theme-text-secondary);">Freeze all game timers and proximity alerts</div>
+            </div>
+          </button>
+
+          <!-- Satellite Recon Sweep -->
+          <button type="button" id="btn-host-recon-sweep" class="btn-secondary" style="width:100%; justify-content:flex-start; padding:12px 16px; border-color:var(--theme-accent-cyan);">
+            <span style="font-size:1.2rem;">🛰️</span>
+            <div>
+              <div style="font-weight:800; color:var(--theme-accent-cyan);">FORCE SATELLITE RECON SWEEP</div>
+              <div style="font-size:0.72rem; color:var(--theme-text-secondary);">Ping all runner & seeker coordinates immediately</div>
+            </div>
+          </button>
+
+          <!-- Emergency Abort -->
+          <button type="button" id="btn-host-abort-match" class="btn-primary" style="width:100%; justify-content:center; padding:12px 16px; background:var(--theme-gradient-seeker); color:#fff; margin-top:6px;">
+            <span>🛑</span> EMERGENCY STOP OPERATION
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- First-Launch / Readiness Checklist Modal -->
+    <div id="modal-onboarding" class="modal-backdrop">
+      <div class="modal-content" style="max-width:460px; text-align:left;">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+          <div style="font-size:1.8rem;">⚡</div>
+          <div>
+            <h2 style="font-size:1.2rem; font-weight:900; letter-spacing:-0.02em;">OPERATION READINESS</h2>
+            <div style="font-size:0.75rem; color:var(--theme-text-secondary);">Enable these to prevent Android from closing the game</div>
+          </div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:12px; margin:16px 0 20px;">
+          <!-- GPS -->
+          <div class="readiness-item" id="readiness-item-gps">
+            <div style="display:flex; align-items:flex-start; gap:10px;">
+              <span style="font-size:1.2rem;">📍</span>
+              <div>
+                <div style="font-weight:800; font-size:0.88rem;">Precise GPS Location</div>
+                <div style="font-size:0.72rem; color:var(--theme-text-secondary);">Required to calculate proximity and plot runners on the radar</div>
+              </div>
+            </div>
+            <button type="button" id="btn-grant-gps" class="readiness-action-btn">GRANT ACCESS</button>
+          </div>
+
+          <!-- Battery Saver Exemption -->
+          <div class="readiness-item" id="readiness-item-battery">
+            <div style="display:flex; align-items:flex-start; gap:10px;">
+              <span style="font-size:1.2rem;">🔋</span>
+              <div>
+                <div style="font-weight:800; font-size:0.88rem;">Disable Battery Saver Optimization</div>
+                <div style="font-size:0.72rem; color:var(--theme-text-secondary);">Prevents Android from freezing the game when your phone is in your pocket</div>
+              </div>
+            </div>
+            <button type="button" id="btn-grant-battery" class="readiness-action-btn">DISABLE SAVER</button>
+          </div>
+
+          <!-- Notifications -->
+          <div class="readiness-item" id="readiness-item-notifs">
+            <div style="display:flex; align-items:flex-start; gap:10px;">
+              <span style="font-size:1.2rem;">🔔</span>
+              <div>
+                <div style="font-weight:800; font-size:0.88rem;">Foreground Service & Alerts</div>
+                <div style="font-size:0.72rem; color:var(--theme-text-secondary);">Delivers proximity alarms and keeps match state active</div>
+              </div>
+            </div>
+            <button type="button" id="btn-grant-notifs" class="readiness-action-btn">ENABLE ALERTS</button>
+          </div>
+        </div>
+
+        <button type="button" id="btn-dismiss-onboarding" class="btn-primary">
+          <span>🚀</span> ALL SET - LET'S HUNT
+        </button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Vendor Libraries (Bundled offline for APK/iOS zero CDN dependency) -->
+  <script src="js/paho-mqtt.min.js"></script>
+  <script src="js/leaflet.js"></script>
+
+  <!-- Application Modules -->
+  <script src="js/config.js"></script>
+  <script src="js/geo.js"></script>
+  <script src="js/network.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/simulation.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/ui.js"></script>
+
+  <!-- Main Entrypoint & Service Worker Registration -->
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      // Initialize core systems
+      Game.init();
+      UI.init();
+
+      // Register PWA service worker for offline performance
+      if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+        navigator.serviceWorker.register('./service-worker.js')
+          .then(reg => console.log('ServiceWorker registered:', reg.scope))
+          .catch(err => console.warn('ServiceWorker registration error:', err));
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+{
+  "title": "Manhunt - Real-Life GPS Game",
+  "short_description": "Outdoor real-life Manhunt game with live seeker radar and periodic runner pings.",
+  "full_description": "Step into the ultimate outdoor pursuit game! Manhunt brings the classic childhood chase into the modern era with tactical GPS radar, stealth mechanics, and team gameplay.\n\n🎯 SEEKERS VS 🏃 RUNNERS\n• Seekers hunt with live, continuous satellite telemetry to track down the fleeing team.\n• Runners must outsmart and evade their pursuers! Their positions are hidden in stealth, broadcasting a brief radar ping only every 5 minutes (fully customizable).\n• Grace Period: Runners get a head start countdown to scatter into position before Seekers are released!\n\n⚡ ZERO ACCOUNTS, ZERO SUBSCRIPTIONS\n• 100% Free Forever: No paywalls, no credits, no paid server requirements.\n• Instant Room Codes: Just enter a 4-letter room code (e.g. HUNT) with your friends and start playing across Android and iOS.\n• Zero External Installations: Every setting, rule, and timer is configurable directly inside the app.\n\n🛡️ TACTICAL THEMES & SENSORY HUD\n• 5 Dynamic Visual Themes: Tactical HUD (Night Vision), Midnight Stealth (OLED Battery Saver), Cyberpunk Neon, Daylight High-Visibility, and Forest Camo.\n• Proximity Alarms: Device vibrates and pulses audio cues when a pursuer enters your perimeter.\n• Built-in Compass & Distance Indicator: Real-time bearing and meter distance to your nearest rival.\n\n🔒 PRIVACY FIRST & PRODUCTION SAFE\n• GPS data is strictly ephemeral and used only during active live rounds.\n• No tracking when the app is closed, no account registration, and zero third-party data selling.\n\nGet outside, gather your squad, and experience the thrill of real-world tactical evasion!",
+  "category": "GAME_ACTION",
+  "default_language": "en-US",
+  "content_rating": {
+    "pegi": "PEGI 3",
+    "esrb": "Everyone",
+    "violence": false,
+    "bad_language": false,
+    "gambling": false
+  },
+  "target_sdk_version": 34,
+  "min_sdk_version": 22,
+  "permissions_declared": [
+    {
+      "permission": "ACCESS_FINE_LOCATION",
+      "purpose": "Accurate real-time GPS coordinates to calculate proximity between Seekers and Runners on the interactive map."
+    },
+    {
+      "permission": "ACCESS_BACKGROUND_LOCATION",
+      "purpose": "Permits periodic runner ping snapshot updates when the device is locked in a player's pocket during active running rounds."
+    },
+    {
+      "permission": "FOREGROUND_SERVICE_LOCATION",
+      "purpose": "Maintains persistent session state and prevents Android from killing the match timer during outdoor chases."
+    },
+    {
+      "permission": "VIBRATE",
+      "purpose": "Provides tactical haptic feedback when opponents enter within proximity alarm range."
+    }
+  ],
+  "contact": {
+    "email": "privacy-support@manhunt-game.local",
+    "website": "https://manhunt-app.org",
+    "privacy_policy_url": "https://manhunt-app.org/privacy-policy.html"
+  }
+}

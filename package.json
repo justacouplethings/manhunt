@@ -1,0 +1,36 @@
+{
+  "name": "manhunt-gps-game",
+  "version": "1.0.0",
+  "description": "Production-ready real-life Manhunt game with live Seeker radar and periodic Runner pings for Android and iOS.",
+  "main": "index.html",
+  "scripts": {
+    "start": "node server.js",
+    "serve": "node server.js",
+    "test": "node tests/run-tests.js",
+    "cap:sync": "npx cap sync",
+    "cap:android": "npx cap open android",
+    "cap:ios": "npx cap open ios",
+    "build:apk": "npx cap sync android && cd android && ./gradlew assembleRelease"
+  },
+  "keywords": [
+    "manhunt",
+    "gps-game",
+    "android",
+    "ios",
+    "leaflet",
+    "real-time",
+    "pwa",
+    "apk"
+  ],
+  "author": "Manhunt Development Team",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/cli": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/geolocation": "^6.0.0",
+    "@capacitor/haptics": "^6.0.0",
+    "@capacitor/ios": "^6.0.0"
+  }
+}
