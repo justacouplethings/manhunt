@@ -519,6 +519,9 @@ class UIManager {
     const boundarySel = document.getElementById('lobby-boundary');
     if (boundarySel && settings.boundaryRadiusMeters !== undefined) boundarySel.value = settings.boundaryRadiusMeters;
 
+    const flareCooldownSel = document.getElementById('lobby-flare-cooldown');
+    if (flareCooldownSel && settings.flareCooldownSeconds !== undefined) flareCooldownSel.value = settings.flareCooldownSeconds;
+
     // Update participant badges
     const chipSeeker = document.getElementById('chip-seeker-mode');
     if (chipSeeker) {
@@ -528,6 +531,12 @@ class UIManager {
     const chipRunner = document.getElementById('chip-runner-ping');
     if (chipRunner) {
       chipRunner.textContent = `RUNNER PING: ${Math.round(settings.runnerPingInterval / 60)}M`;
+    }
+
+    const chipFlare = document.getElementById('chip-flare-cooldown');
+    if (chipFlare) {
+      const fc = settings.flareCooldownSeconds !== undefined ? settings.flareCooldownSeconds : 60;
+      chipFlare.textContent = `FLARE: ${fc >= 60 ? (fc % 60 === 0 ? (fc / 60) + 'M' : (fc / 60).toFixed(1) + 'M') : fc + 'S'}`;
     }
 
     const chipGrace = document.getElementById('chip-grace-period');
@@ -786,6 +795,12 @@ class UIManager {
     const selectorPill = document.getElementById('btn-target-selector');
     if (selectorPill) selectorPill.style.display = isSeeker ? 'flex' : 'none';
 
+    const openTargetsBtn = document.getElementById('btn-open-targets');
+    if (openTargetsBtn) openTargetsBtn.style.display = isSeeker ? 'flex' : 'none';
+
+    const flareBtn = document.getElementById('btn-panic-ping');
+    if (flareBtn) flareBtn.style.display = isSeeker ? 'none' : 'flex';
+
     const radarContainer = document.querySelector('.radar-container');
     if (radarContainer) {
       if (isSeeker) {
@@ -1003,6 +1018,7 @@ class UIManager {
       const captureMode = document.getElementById('lobby-capture-mode').value;
       const tagConfirm = document.getElementById('lobby-tag-confirm').value === 'true';
       const boundary = parseInt(document.getElementById('lobby-boundary').value, 10);
+      const flareCooldown = parseInt(document.getElementById('lobby-flare-cooldown')?.value, 10) || 60;
 
       const updated = {
         seekerTrackingMode: seekerMode,
@@ -1012,7 +1028,8 @@ class UIManager {
         tagDistanceMeters: tagDistance,
         runnerCaptureMode: captureMode,
         requireTagConfirmation: tagConfirm,
-        boundaryRadiusMeters: boundary
+        boundaryRadiusMeters: boundary,
+        flareCooldownSeconds: flareCooldown
       };
 
       Config.save(updated);
@@ -1021,7 +1038,7 @@ class UIManager {
       this.showToast('Tactical rules updated for squad', 'info');
     };
 
-    ['lobby-seeker-mode', 'lobby-runner-interval', 'lobby-grace-period', 'lobby-match-duration', 'lobby-tag-distance', 'lobby-capture-mode', 'lobby-tag-confirm', 'lobby-boundary'].forEach(id => {
+    ['lobby-seeker-mode', 'lobby-runner-interval', 'lobby-grace-period', 'lobby-match-duration', 'lobby-tag-distance', 'lobby-capture-mode', 'lobby-tag-confirm', 'lobby-boundary', 'lobby-flare-cooldown'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.onchange = handleLobbyConfigChange;
     });

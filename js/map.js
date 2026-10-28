@@ -216,6 +216,64 @@ class TacticalMap {
     }, 50);
   }
 
+  /**
+   * High-visibility tactical flare beacon animation at runner's exact GPS location
+   */
+  triggerFlareAnimation(lat, lng, nickname = 'Runner') {
+    if (!this.map) return;
+
+    // 1. Double shockwave circles expanding across the terrain
+    const colors = ['#fbbf24', '#f59e0b'];
+    colors.forEach((col, idx) => {
+      setTimeout(() => {
+        if (!this.map) return;
+        const flareCircle = L.circle([lat, lng], {
+          radius: 40,
+          color: col,
+          weight: 3,
+          fillColor: col,
+          fillOpacity: 0.45
+        }).addTo(this.map);
+
+        let r = 40;
+        let op = 0.45;
+        const waveTimer = setInterval(() => {
+          r += 24;
+          op -= 0.035;
+          if (op <= 0 || r > 320) {
+            clearInterval(waveTimer);
+            try { this.map.removeLayer(flareCircle); } catch (e) {}
+          } else {
+            flareCircle.setRadius(r);
+            flareCircle.setStyle({ fillOpacity: Math.max(0, op), opacity: Math.max(0, op * 1.6) });
+          }
+        }, 45);
+      }, idx * 250);
+    });
+
+    // 2. Glowing flare beacon marker that remains for 6 seconds
+    const beaconHtml = `
+      <div class="tactical-flare-beacon-container">
+        <div class="tactical-flare-beacon-pulse"></div>
+        <div class="tactical-flare-beacon-core"></div>
+        <div class="tactical-flare-pill">📍 FLARE: ${nickname.toUpperCase()}</div>
+      </div>
+    `;
+
+    const beaconIcon = L.divIcon({
+      className: 'tactical-flare-icon',
+      html: beaconHtml,
+      iconSize: [40, 40],
+      iconAnchor: [20, 20]
+    });
+
+    const beaconMarker = L.marker([lat, lng], { icon: beaconIcon, zIndexOffset: 1000 }).addTo(this.map);
+
+    setTimeout(() => {
+      try { this.map.removeLayer(beaconMarker); } catch (e) {}
+    }, 6000);
+  }
+
   addBreadcrumb(peerId, lat, lng, color) {
     let polyline = this.breadcrumbPaths.get(peerId);
     if (!polyline) {

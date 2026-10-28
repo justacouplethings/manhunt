@@ -208,13 +208,27 @@
 
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
             <div class="input-group" style="margin-bottom:0;">
+              <label class="input-label" for="lobby-flare-cooldown">Flare Cooldown</label>
+              <select id="lobby-flare-cooldown" class="tactical-input">
+                <option value="30">30 Seconds</option>
+                <option value="45">45 Seconds</option>
+                <option value="60" selected>60 Seconds (1 Min)</option>
+                <option value="90">90 Seconds (1.5 Min)</option>
+                <option value="120">120 Seconds (2 Min)</option>
+                <option value="180">180 Seconds (3 Min)</option>
+              </select>
+            </div>
+
+            <div class="input-group" style="margin-bottom:0;">
               <label class="input-label" for="lobby-tag-confirm">Tag Confirmation</label>
               <select id="lobby-tag-confirm" class="tactical-input">
                 <option value="true" selected>Required (Runner Confirms)</option>
                 <option value="false">Instant (Seeker Final)</option>
               </select>
             </div>
+          </div>
 
+          <div style="display:grid; grid-template-columns:1fr; gap:10px; margin-top:10px;">
             <div class="input-group" style="margin-bottom:0;">
               <label class="input-label" for="lobby-boundary">Play Boundary Radius</label>
               <select id="lobby-boundary" class="tactical-input">
@@ -239,6 +253,7 @@
           <div style="display:flex; flex-wrap:wrap; gap:8px;" id="lobby-participant-chips">
             <span class="status-badge status-online" id="chip-seeker-mode">SEEKER: LIVE</span>
             <span class="status-badge status-online" id="chip-runner-ping">RUNNER PING: 5M</span>
+            <span class="status-badge status-online" id="chip-flare-cooldown">FLARE: 60S</span>
             <span class="status-badge status-online" id="chip-grace-period">GRACE: 3M</span>
             <span class="status-badge status-online" id="chip-match-duration">DURATION: 45M</span>
             <span class="status-badge status-online" id="chip-tag-distance">TAG: 15M</span>
@@ -390,7 +405,7 @@
           <button type="button" id="btn-open-targets" class="hud-action-btn">
             <span>🎯</span> Targets
           </button>
-          <button type="button" id="btn-panic-ping" class="hud-action-btn">
+          <button type="button" id="btn-panic-ping" class="hud-action-btn btn-flare">
             <span>📍</span> Flare
           </button>
         </div>

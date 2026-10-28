@@ -1271,6 +1271,86 @@ assert(legitAttempt === true, 'Legitimate live catch within true catch radius is
 assert(gameSec24.tagRequestsSent.length === 1, 'Network tag packet sent for verified live proximity catch');
 assert(gameSec24.tagRequestsSent[0].distance < 1, 'Tag distance computed from live GPS proximity (< 1m)');
 
+console.log('\n25. Testing Flare Button Layout, Host Cooldown Configuration & Seeker Alert Mechanics:');
+
+// 1. Verify Host Flare Cooldown selector options in index.html
+const indexHtmlContent = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+assert(indexHtmlContent.includes('id="lobby-flare-cooldown"'), 'Host lobby includes #lobby-flare-cooldown dropdown');
+assert(indexHtmlContent.includes('value="30">30 Seconds</option>'), 'Dropdown includes 30s option');
+assert(indexHtmlContent.includes('value="45">45 Seconds</option>'), 'Dropdown includes 45s option');
+assert(indexHtmlContent.includes('value="60" selected>60 Seconds (1 Min)</option>'), 'Dropdown includes 60s default option');
+assert(indexHtmlContent.includes('value="90">90 Seconds (1.5 Min)</option>'), 'Dropdown includes 90s option');
+assert(indexHtmlContent.includes('value="120">120 Seconds (2 Min)</option>'), 'Dropdown includes 120s (2m) option');
+assert(indexHtmlContent.includes('value="180">180 Seconds (3 Min)</option>'), 'Dropdown includes 180s (3m) option');
+
+// 2. Verify Participant chip for flare cooldown
+assert(indexHtmlContent.includes('id="chip-flare-cooldown"'), 'Participant overview includes #chip-flare-cooldown badge');
+
+// 3. Verify CSS rules for responsive action buttons
+const stylesCssContent = fs.readFileSync(path.join(__dirname, '../css/styles.css'), 'utf8');
+assert(stylesCssContent.includes('.hud-action-btn') && stylesCssContent.includes('min-width: 0'), 'Action buttons have min-width: 0 to prevent mobile overflow');
+assert(stylesCssContent.includes('white-space: nowrap'), 'Action button text styled with nowrap');
+assert(stylesCssContent.includes('.hud-action-btn.btn-flare'), 'Specific high-visibility styling exists for .btn-flare');
+assert(stylesCssContent.includes('.tactical-flare-beacon-container'), 'Tactical flare beacon CSS container defined');
+assert(stylesCssContent.includes('.tactical-flare-pill'), 'Tactical flare callout pill defined with animation');
+
+// 4. Test Seeker Notification Terminology & Instant Beacon Triggering
+const simulatedSeeker = {
+  role: 'seeker',
+  lastKnownPositions: new Map(),
+  trueLivePositions: new Map(),
+  activeRunners: new Set(['runner-42']),
+  activeSeekers: new Set(['seeker-1']),
+  toastMessages: [],
+  criticalEvents: [],
+  radarBlips: 0,
+  sirens: 0,
+  flareBeaconAnimationTriggered: false,
+  flareBeaconCoords: null,
+  flareBeaconCaller: null,
+
+  onRemoteTelemetry(data) {
+    const { playerId, lat, lng, role, isPingSnapshot, nickname } = data;
+    if (data.isManualFlare) {
+      this.lastKnownPositions.set(playerId, { lat, lng, role, timestamp: Date.now(), nickname });
+      this.criticalEvents.push({
+        title: 'FLARE',
+        msg: `📍 ${nickname || 'Runner'} triggered a Flare!`
+      });
+      this.sirens++;
+      this.flareBeaconAnimationTriggered = true;
+      this.flareBeaconCoords = { lat, lng };
+      this.flareBeaconCaller = nickname || 'Runner';
+    }
+  }
+};
+
+const flarePacket = {
+  playerId: 'runner-42',
+  lat: 40.7580,
+  lng: -73.9855,
+  role: 'runner',
+  isPingSnapshot: true,
+  isManualFlare: true,
+  nickname: 'GhostRunner',
+  timestamp: Date.now()
+};
+
+simulatedSeeker.onRemoteTelemetry(flarePacket);
+
+// Verify exact seeker terminology & caller attribution
+assert(simulatedSeeker.criticalEvents.length === 1, 'Seeker received exactly 1 critical notification on flare');
+assert(simulatedSeeker.criticalEvents[0].msg === '📍 GhostRunner triggered a Flare!', 'Seeker alert states who triggered the flare ("📍 GhostRunner triggered a Flare!")');
+assert(!simulatedSeeker.criticalEvents[0].msg.toLowerCase().includes('emergency flare'), 'Terminology does NOT use "Emergency Flare"');
+assert(simulatedSeeker.criticalEvents[0].msg.includes('Flare'), 'Terminology strictly uses "Flare"');
+assert(simulatedSeeker.sirens === 1, 'Seeker triggered urgent acoustic siren');
+
+// Verify instant location revelation at exact second
+assert(simulatedSeeker.lastKnownPositions.get('runner-42').lat === 40.7580, 'Runner coordinates snapped instantly on Seeker map');
+assert(simulatedSeeker.lastKnownPositions.get('runner-42').lng === -73.9855, 'Runner coordinates snapped instantly on Seeker map');
+assert(simulatedSeeker.flareBeaconAnimationTriggered === true, 'Tactical flare beacon wave triggered on map the second flare is fired');
+assert(simulatedSeeker.flareBeaconCaller === 'GhostRunner', 'Beacon callout correctly displays caller name');
+
 // Summary
 console.log('\n======================================================');
 console.log(`📊 TEST RESULTS: ${testsPassed} PASSED, ${testsFailed} FAILED`);

@@ -459,6 +459,7 @@ class ManhuntGame {
       runnerCaptureMode: Config.settings.runnerCaptureMode,
       tagDistanceMeters: Config.settings.tagDistanceMeters,
       requireTagConfirmation: Config.settings.requireTagConfirmation,
+      flareCooldownSeconds: Config.settings.flareCooldownSeconds || 60,
       startTimestamp: Date.now(),
       roster: roster
     };
@@ -488,6 +489,7 @@ class ManhuntGame {
     if (data.gracePeriod !== undefined) Config.settings.gracePeriod = data.gracePeriod;
     if (data.gameDuration !== undefined) Config.settings.gameDuration = data.gameDuration;
     if (data.runnerPingInterval !== undefined) Config.settings.runnerPingInterval = data.runnerPingInterval;
+    if (data.flareCooldownSeconds !== undefined) Config.settings.flareCooldownSeconds = data.flareCooldownSeconds;
     if (data.boundaryRadiusMeters !== undefined) {
       this.boundaryRadiusMeters = data.boundaryRadiusMeters;
       Config.settings.boundaryRadiusMeters = data.boundaryRadiusMeters;
@@ -703,7 +705,8 @@ class ManhuntGame {
     UI.playAudioCue('ping');
     UI.triggerPingPulseAnimation();
     if (isManualFlare) {
-      UI.showToast('📍 Tactical flare fired! Position revealed to Seekers.', 'warning');
+      UI.showToast('📍 Flare fired! Position revealed to Seekers.', 'warning');
+      MapController.triggerFlareAnimation(coords.lat, coords.lng, this.nickname || 'You');
     }
   }
 
@@ -825,7 +828,8 @@ class ManhuntGame {
         if (isPingSnapshot || isReconSweep) {
           UI.playAudioCue('radar-blip');
           if (data.isManualFlare) {
-            UI.showToast(`📍 Teammate ${nickname || 'Runner'} fired a flare!`, 'warning');
+            UI.showToast(`📍 Teammate ${nickname || 'Runner'} triggered a Flare!`, 'warning');
+            MapController.triggerFlareAnimation(lat, lng, nickname || 'Runner');
           }
         }
       } else if (this.role === 'seeker') {
@@ -834,9 +838,12 @@ class ManhuntGame {
         if (isPingSnapshot || isReconSweep || data.isManualFlare) {
           this.lastKnownPositions.set(playerId, { lat, lng, role, timestamp: Date.now(), nickname });
           MapController.updatePeerLocation(playerId, lat, lng, 'runner', nickname || 'Runner', true);
-          UI.playAudioCue('radar-blip');
           if (data.isManualFlare) {
-            UI.showToast(`📍 Runner ${nickname || 'Runner'} fired an emergency flare!`, 'warning');
+            UI.playAudioCue('siren');
+            UI.notifyCriticalEvent('FLARE', `📍 ${nickname || 'Runner'} triggered a Flare!`, 'warning');
+            MapController.triggerFlareAnimation(lat, lng, nickname || 'Runner');
+          } else {
+            UI.playAudioCue('radar-blip');
           }
         }
       }

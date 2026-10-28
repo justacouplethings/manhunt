@@ -1500,28 +1500,41 @@ body.theme-camo .leaflet-tile {
 
 .hud-actions-row {
   display: flex;
-  gap: 10px;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
   pointer-events: auto;
 }
 
 .hud-action-btn {
-  flex: 1;
-  padding: 12px 14px;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 10px 4px;
   background: var(--theme-surface-glass);
   backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--theme-border);
   border-radius: var(--radius-lg);
   color: var(--theme-text-primary);
   font-family: var(--font-family);
-  font-size: 0.8rem;
+  font-size: 0.74rem;
   font-weight: 700;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
   box-shadow: var(--shadow-sm);
   transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.hud-action-btn span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 0.85rem;
 }
 
 .hud-action-btn:hover {
@@ -1531,6 +1544,49 @@ body.theme-camo .leaflet-tile {
 .hud-action-btn.active {
   border-color: var(--theme-accent-cyan);
   color: var(--theme-accent-cyan);
+}
+
+/* Tactical Flare Action Button */
+.hud-action-btn.btn-flare {
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #fbbf24;
+}
+
+.hud-action-btn.btn-flare:hover {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: #f59e0b;
+}
+
+.hud-action-btn.btn-cooldown {
+  opacity: 0.7;
+  cursor: not-allowed;
+  border-color: rgba(255, 255, 255, 0.15);
+  color: var(--theme-text-muted);
+}
+
+@media (max-width: 380px) {
+  .hud-actions-row {
+    gap: 4px;
+  }
+  .hud-action-btn {
+    padding: 8px 2px;
+    font-size: 0.68rem;
+    gap: 3px;
+  }
+  .hud-action-btn span {
+    font-size: 0.75rem;
+  }
+}
+
+@media (max-width: 330px) {
+  .hud-actions-row {
+    gap: 3px;
+  }
+  .hud-action-btn {
+    padding: 7px 1px;
+    font-size: 0.62rem;
+    gap: 2px;
+  }
 }
 
 /* Tag Runner Action Button */
@@ -1909,6 +1965,72 @@ input:checked + .slider::before {
   color: #fff;
   border: 1px solid rgba(255, 255, 255, 0.15);
   pointer-events: none;
+}
+
+/* Flare Beacon Shockwave & High-Visibility Tactical Marker */
+.tactical-flare-beacon-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  position: relative;
+}
+
+.tactical-flare-beacon-core {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fbbf24 30%, #f59e0b 80%, #b45309 100%);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 20px 6px #f59e0b, 0 0 40px 12px rgba(245, 158, 11, 0.6);
+  animation: flareBeaconPulse 1.2s infinite ease-in-out;
+}
+
+.tactical-flare-beacon-pulse {
+  position: absolute;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  border: 3px solid #fbbf24;
+  box-shadow: 0 0 16px #f59e0b;
+  animation: flareRingExpand 1.6s infinite cubic-bezier(0.2, 0.8, 0.4, 1);
+  pointer-events: none;
+}
+
+.tactical-flare-pill {
+  position: absolute;
+  top: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  padding: 3px 9px;
+  background: rgba(180, 83, 9, 0.95);
+  backdrop-filter: blur(6px);
+  border-radius: var(--radius-sm);
+  color: #fff;
+  border: 1px solid #fbbf24;
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.5);
+  pointer-events: none;
+  animation: flarePillBounce 0.5s ease-out;
+}
+
+@keyframes flareBeaconPulse {
+  0%, 100% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.25); filter: brightness(1.4); }
+}
+
+@keyframes flareRingExpand {
+  0% { transform: scale(0.4); opacity: 1; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+@keyframes flarePillBounce {
+  0% { transform: translate(-50%, -10px) scale(0.8); opacity: 0; }
+  100% { transform: translate(-50%, 0) scale(1); opacity: 1; }
 }
 
 /* Floating Map Zoom & Fitting Controls (Vertically centered on right edge, clear of top and bottom HUDs) */
