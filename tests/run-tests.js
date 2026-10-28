@@ -485,15 +485,16 @@ assert(shouldAcceptRunnerTelemetry('seeker', satelliteReconPacket) === true, 'Se
 // 15. Testing Admin Authentication & Secret Gesture
 console.log('\n15. Testing Admin Authentication & Secret Gesture:');
 function authenticateAdmin(input, config) {
-  const pin = config.adminPin || '1337';
+  const pin = config.adminPin || '4';
   const pass = config.adminPassword || 'shebsilover911#';
   const cleaned = (input || '').trim();
-  return cleaned === pin || cleaned === pass || cleaned === '1337' || cleaned === 'shebsilover911#';
+  return cleaned === pin || cleaned === pass || cleaned === '4' || cleaned === 'shebsilover911#';
 }
 
-const mockConfig = { adminPin: '1337', adminPassword: 'shebsilover911#' };
-assert(authenticateAdmin('1337', mockConfig) === true, 'Default Admin PIN "1337" successfully authenticates');
+const mockConfig = { adminPin: '4', adminPassword: 'shebsilover911#' };
+assert(authenticateAdmin('4', mockConfig) === true, 'Admin PIN "4" successfully authenticates');
 assert(authenticateAdmin('shebsilover911#', mockConfig) === true, 'Admin Passphrase "shebsilover911#" successfully authenticates');
+assert(authenticateAdmin('1337', mockConfig) === false, 'Legacy PIN "1337" is strictly rejected');
 assert(authenticateAdmin('1234', mockConfig) === false, 'Invalid PIN "1234" is rejected');
 assert(authenticateAdmin('admin', mockConfig) === false, 'Invalid password "admin" is rejected');
 assert(authenticateAdmin('', mockConfig) === false, 'Empty credential is rejected');
@@ -502,6 +503,10 @@ assert(authenticateAdmin('', mockConfig) === false, 'Empty credential is rejecte
 const customConfig = { adminPin: '9988', adminPassword: 'tactical_override' };
 assert(authenticateAdmin('9988', customConfig) === true, 'Custom PIN "9988" successfully authenticates');
 assert(authenticateAdmin('tactical_override', customConfig) === true, 'Custom Passphrase successfully authenticates');
+
+// Verify placeholder does not reveal passwords
+const indexHtmlSource = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+assert(!indexHtmlSource.includes('placeholder="e.g. 1337') && !indexHtmlSource.includes('placeholder="e.g. 4') && !indexHtmlSource.includes('placeholder="e.g. shebsilover911#'), 'Admin passcode placeholder does not reveal passwords');
 
 
 // 16. Testing Admin Total Control & Moderation Logic

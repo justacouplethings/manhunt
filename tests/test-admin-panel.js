@@ -81,13 +81,19 @@ async function runAdminTest() {
   await page.waitForTimeout(200);
   assert(await errorMsg.isVisible(), 'Error message displayed for invalid password');
 
-  // Positive test: new password "shebsilover911#"
-  await passInput.fill('shebsilover911#');
+  // Negative test: legacy PIN "1337" should now be rejected
+  await passInput.fill('1337');
+  await unlockBtn.click();
+  await page.waitForTimeout(200);
+  assert(await errorMsg.isVisible(), 'Legacy PIN "1337" is rejected');
+
+  // Positive test: new PIN "4"
+  await passInput.fill('4');
   await unlockBtn.click();
   await page.waitForTimeout(500);
 
   const adminScreen = page.locator('#screen-admin');
-  assert(await adminScreen.isVisible(), 'Password "shebsilover911#" unlocked Admin Omni-Command Dashboard');
+  assert(await adminScreen.isVisible(), 'PIN "4" unlocked Admin Omni-Command Dashboard');
 
   // [4] Test Tab Navigation
   console.log('\n[4] Testing Admin Navigation Tabs...');

@@ -33,7 +33,7 @@ const DEFAULT_CONFIG = {
   simulationMode: false,          // Test mode with simulated bots
 
   // Admin & Moderation Credentials
-  adminPin: '1337',               // Quick access numeric PIN
+  adminPin: '4',                  // Quick access numeric PIN
   adminPassword: 'shebsilover911#' // Alpha-numeric administrative passphrase
 };
 
