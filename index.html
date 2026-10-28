@@ -887,6 +887,112 @@
       </div>
     </div>
 
+    <!-- In-Game Match Settings Overlay Modal -->
+    <div id="modal-ingame-settings" class="modal-backdrop">
+      <div class="modal-content ingame-settings-modal" style="max-width:440px; text-align:left;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:10px;">
+          <div>
+            <h2 style="font-size:1.15rem; font-weight:900; color:var(--theme-primary); display:flex; align-items:center; gap:8px;">
+              <span>⚙️</span> MATCH SETTINGS
+            </h2>
+            <div style="font-size:0.75rem; color:var(--theme-text-muted);">Adjust audio, haptics and controls without interrupting gameplay</div>
+          </div>
+          <button type="button" id="btn-close-ingame-settings" class="text-btn" style="font-size:1.3rem; padding:4px;" aria-label="Close Settings">✕</button>
+        </div>
+
+        <div class="ingame-settings-body" style="display:flex; flex-direction:column; gap:12px; margin-bottom:18px;">
+          <!-- Audio Synthesizer Toggle -->
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 12px; background:rgba(255,255,255,0.03); border:1px solid var(--theme-border); border-radius:var(--radius-md);">
+            <div>
+              <div style="font-weight:700; font-size:0.9rem; color:var(--theme-text-primary); display:flex; align-items:center; gap:6px;">
+                <span>🔊</span> Sound Effects & Sirens
+              </div>
+              <div style="font-size:0.75rem; color:var(--theme-text-muted);">
+                Tactical proximity alarm, ping cues, and sirens
+              </div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="ingame-setting-sound" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- Vibration Feedback Toggle -->
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 12px; background:rgba(255,255,255,0.03); border:1px solid var(--theme-border); border-radius:var(--radius-md);">
+            <div>
+              <div style="font-weight:700; font-size:0.9rem; color:var(--theme-text-primary); display:flex; align-items:center; gap:6px;">
+                <span>📳</span> Haptic Vibration Alerts
+              </div>
+              <div style="font-size:0.75rem; color:var(--theme-text-muted);">
+                Proximity pulse and capture alert vibrations
+              </div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="ingame-setting-vibration" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- Wake Lock / Screen Sleep Toggle -->
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 12px; background:rgba(255,255,255,0.03); border:1px solid var(--theme-border); border-radius:var(--radius-md);">
+            <div>
+              <div style="font-weight:700; font-size:0.9rem; color:var(--theme-text-primary); display:flex; align-items:center; gap:6px;">
+                <span>💡</span> Keep Screen Awake
+              </div>
+              <div style="font-size:0.75rem; color:var(--theme-text-muted);">
+                Prevents display sleep during active pursuit
+              </div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="ingame-setting-wakelock" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- High Accuracy GPS Toggle -->
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 12px; background:rgba(255,255,255,0.03); border:1px solid var(--theme-border); border-radius:var(--radius-md);">
+            <div>
+              <div style="font-weight:700; font-size:0.9rem; color:var(--theme-text-primary); display:flex; align-items:center; gap:6px;">
+                <span>🛰️</span> High Accuracy GPS
+              </div>
+              <div style="font-size:0.75rem; color:var(--theme-text-muted);">
+                Precision hardware satellite positioning
+              </div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="ingame-setting-gps" checked>
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- Match Status Info Card -->
+          <div style="padding:10px 12px; background:rgba(0, 245, 180, 0.05); border:1px solid rgba(0, 245, 180, 0.2); border-radius:var(--radius-md); font-size:0.8rem;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+              <span style="color:var(--theme-text-muted);">Operation Code:</span>
+              <span id="ingame-info-room" style="font-weight:800; font-family:monospace; color:var(--theme-primary);">----</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+              <span style="color:var(--theme-text-muted);">Assigned Role:</span>
+              <span id="ingame-info-role" style="font-weight:800; text-transform:uppercase;">RUNNER</span>
+            </div>
+            <div style="display:flex; justify-content:space-between;">
+              <span style="color:var(--theme-text-muted);">Boundary Radius:</span>
+              <span id="ingame-info-boundary" style="font-weight:700;">1,500m</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:10px;">
+          <button type="button" id="btn-ingame-leave-match" class="btn-danger" style="flex:1;">
+            <span>🚪</span> LEAVE MATCH
+          </button>
+          <button type="button" id="btn-ingame-save-settings" class="btn-primary" style="flex:1;">
+            <span>💾</span> SAVE
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Confirm Exit / Abandon Match Modal -->
     <div id="modal-confirm-exit" class="modal-backdrop">
       <div class="modal-content">

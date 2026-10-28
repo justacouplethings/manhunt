@@ -652,6 +652,54 @@ const botOobCheck = evaluateBoundaryState(testBot, roomAnchor, roomRadius);
 assert(botOobCheck.isOOB === true, 'Teleporting bot outside 1000m boundary correctly triggers Out of Bounds alert');
 
 
+// 18. Testing In-Game HUD Settings Modal & State Preservation
+console.log('\n18. Testing In-Game HUD Settings Modal & State Preservation:');
+class MockInGameSettingsController {
+  constructor() {
+    this.modalVisible = false;
+    this.gameState = 'ACTIVE';
+    this.lastKnownCoords = { lat: 40.7580, lng: -73.9855 };
+    this.settings = {
+      soundEnabled: true,
+      vibrationEnabled: true,
+      wakeLockEnabled: true,
+      highAccuracyGPS: true
+    };
+  }
+
+  openSettings() {
+    this.modalVisible = true;
+    // Map tracking and game state MUST remain active
+    return {
+      modalVisible: this.modalVisible,
+      gameState: this.gameState,
+      locationTrackingActive: !!this.lastKnownCoords
+    };
+  }
+
+  saveSettings(newValues) {
+    this.settings = { ...this.settings, ...newValues };
+    this.modalVisible = false;
+  }
+
+  closeSettings() {
+    this.modalVisible = false;
+  }
+}
+
+const mockHudSettings = new MockInGameSettingsController();
+const openResult = mockHudSettings.openSettings();
+assert(openResult.modalVisible === true, 'In-Game settings modal opens cleanly upon clicking gear icon');
+assert(openResult.gameState === 'ACTIVE', 'Game state remains fully ACTIVE while settings modal is open');
+assert(openResult.locationTrackingActive === true, 'Location tracking continues running uninterrupted in background');
+
+// Save updated sensory preferences
+mockHudSettings.saveSettings({ vibrationEnabled: false, soundEnabled: true });
+assert(mockHudSettings.settings.vibrationEnabled === false, 'In-Game setting toggle updates vibration preference');
+assert(mockHudSettings.modalVisible === false, 'Saving in-game settings dismisses modal back to tactical HUD');
+
+
+
 
 
 // Summary

@@ -427,7 +427,7 @@ class UIManager {
       tagBtn.innerHTML = `🎯 TAG RUNNER (RANGE: ${Config.settings.tagDistanceMeters}m)`;
     }
 
-    ['modal-host-controls', 'modal-boundary-confirm', 'modal-runner-tag-confirm', 'modal-captured', 'modal-target-selector'].forEach(m => {
+    ['modal-host-controls', 'modal-boundary-confirm', 'modal-runner-tag-confirm', 'modal-captured', 'modal-target-selector', 'modal-ingame-settings'].forEach(m => {
       this.closeModal(m);
     });
   }
@@ -1074,13 +1074,60 @@ class UIManager {
       };
     }
 
-    // Settings Modal Open/Close
+    // Settings Modal Open/Close (Lobby)
     const openSettingsBtn = document.getElementById('btn-open-settings');
     const closeSettingsBtn = document.getElementById('btn-close-settings');
     if (openSettingsBtn) openSettingsBtn.onclick = () => this.showScreen('screen-settings');
     if (closeSettingsBtn) closeSettingsBtn.onclick = () => {
       this.showScreen(Game.state === 'ACTIVE' || Game.state === 'GRACE_PERIOD' ? 'screen-hud' : (Game.state === 'WAITING' ? 'screen-waiting' : 'screen-lobby'));
     };
+
+    // In-Game Tactical HUD Settings Button & Overlay Modal
+    const openSettingsHudBtn = document.getElementById('btn-open-settings-hud');
+    if (openSettingsHudBtn) {
+      openSettingsHudBtn.onclick = (e) => {
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        this.openIngameSettings();
+      };
+    }
+
+    const closeIngameSettingsBtn = document.getElementById('btn-close-ingame-settings');
+    if (closeIngameSettingsBtn) {
+      closeIngameSettingsBtn.onclick = () => {
+        this.closeModal('modal-ingame-settings');
+      };
+    }
+
+    const saveIngameSettingsBtn = document.getElementById('btn-ingame-save-settings');
+    if (saveIngameSettingsBtn) {
+      saveIngameSettingsBtn.onclick = () => {
+        const sound = document.getElementById('ingame-setting-sound')?.checked ?? true;
+        const vib = document.getElementById('ingame-setting-vibration')?.checked ?? true;
+        const wake = document.getElementById('ingame-setting-wakelock')?.checked ?? true;
+        const gps = document.getElementById('ingame-setting-gps')?.checked ?? true;
+
+        Config.save({
+          soundEnabled: sound,
+          vibrationEnabled: vib,
+          wakeLockEnabled: wake,
+          highAccuracyGPS: gps
+        });
+
+        this.closeModal('modal-ingame-settings');
+        this.showToast('Match settings saved', 'info');
+      };
+    }
+
+    const ingameLeaveMatchBtn = document.getElementById('btn-ingame-leave-match');
+    if (ingameLeaveMatchBtn) {
+      ingameLeaveMatchBtn.onclick = () => {
+        this.closeModal('modal-ingame-settings');
+        this.showModal('modal-confirm-exit');
+      };
+    }
 
     // Save Settings
     const saveSettingsBtn = document.getElementById('btn-save-settings');
@@ -1440,6 +1487,34 @@ class UIManager {
       setTimeout(() => inputEl.focus(), 200);
     }
     this.showModal('modal-admin-auth');
+  }
+
+  openIngameSettings() {
+    const soundToggle = document.getElementById('ingame-setting-sound');
+    const vibToggle = document.getElementById('ingame-setting-vibration');
+    const wakeToggle = document.getElementById('ingame-setting-wakelock');
+    const gpsToggle = document.getElementById('ingame-setting-gps');
+
+    if (soundToggle) soundToggle.checked = !!Config.settings.soundEnabled;
+    if (vibToggle) vibToggle.checked = !!Config.settings.vibrationEnabled;
+    if (wakeToggle) wakeToggle.checked = !!Config.settings.wakeLockEnabled;
+    if (gpsToggle) gpsToggle.checked = !!Config.settings.highAccuracyGPS;
+
+    const roomEl = document.getElementById('ingame-info-room');
+    const roleEl = document.getElementById('ingame-info-role');
+    const boundaryEl = document.getElementById('ingame-info-boundary');
+
+    if (roomEl) roomEl.textContent = Game.roomCode || '----';
+    if (roleEl) {
+      roleEl.textContent = (Game.role || 'runner').toUpperCase();
+      roleEl.style.color = Game.role === 'seeker' ? 'var(--theme-seeker, #ff4757)' : 'var(--theme-runner, #00f5b4)';
+    }
+    if (boundaryEl) {
+      boundaryEl.textContent = (Game.boundaryRadiusMeters || Config.settings.boundaryRadiusMeters || 1500) + 'm';
+    }
+
+    this.showModal('modal-ingame-settings');
+    this.playAudioCue('blip');
   }
 }
 

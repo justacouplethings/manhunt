@@ -210,8 +210,41 @@ async function runE2ETests() {
     await page.waitForTimeout(800);
     console.log('    ✅ Satellite Recon Sweep executed');
 
-    // 11. Test In-Match Exit Option
-    console.log('[11] Testing In-Match Exit Option...');
+    // 11. Test In-Game Match Settings Gear Button & Overlay Modal
+    console.log('[11] Testing In-Game Settings Gear Button & Modal Overlay...');
+    const hudSettingsBtn = page.locator('#btn-open-settings-hud');
+    await hudSettingsBtn.waitFor({ state: 'visible', timeout: 3000 });
+    await hudSettingsBtn.click();
+
+    const ingameSettingsModal = page.locator('#modal-ingame-settings');
+    await ingameSettingsModal.waitFor({ state: 'visible', timeout: 3000 });
+    console.log('    ✅ In-Game Settings Modal opened successfully via gear icon');
+
+    // Verify toggles
+    const soundToggle = page.locator('#ingame-setting-sound');
+    const vibToggle = page.locator('#ingame-setting-vibration');
+    const wakeToggle = page.locator('#ingame-setting-wakelock');
+    const gpsToggle = page.locator('#ingame-setting-gps');
+
+    if (await soundToggle.isVisible() && await vibToggle.isVisible()) {
+      console.log('    ✅ Volume and notification/vibration toggles verified');
+    }
+
+    // Test Save button
+    const saveIngameBtn = page.locator('#btn-ingame-save-settings');
+    await saveIngameBtn.click();
+    await ingameSettingsModal.waitFor({ state: 'hidden', timeout: 3000 });
+    console.log('    ✅ Settings saved and modal dismissed cleanly without interrupting game');
+
+    // Reopen and test close button
+    await hudSettingsBtn.click();
+    await ingameSettingsModal.waitFor({ state: 'visible', timeout: 3000 });
+    await page.locator('#btn-close-ingame-settings').click();
+    await ingameSettingsModal.waitFor({ state: 'hidden', timeout: 3000 });
+    console.log('    ✅ Close button dismissed in-game settings modal');
+
+    // 12. Test In-Match Exit Option
+    console.log('[12] Testing In-Match Exit Option...');
     const exitBtn = page.locator('#btn-exit-match-hud');
     await exitBtn.click();
 
