@@ -1,4 +1,4 @@
-const CACHE_NAME = 'manhunt-v1.2.0';
+const CACHE_NAME = 'manhunt-v2.2.0';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -21,10 +21,11 @@ const ASSETS_TO_CACHE = [
 ];
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(ASSETS_TO_CACHE);
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
@@ -34,6 +35,7 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
+            console.log('[ServiceWorker] Purging stale cache:', key);
             return caches.delete(key);
           }
         })
@@ -43,7 +45,7 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Tile requests & WebSocket shouldn't fail offline
+  // Real-time map tiles & WebSocket traffic bypass service worker
   if (event.request.url.includes('tile.openstreetmap.org') ||
       event.request.url.includes('arcgisonline.com') ||
       event.request.url.includes('basemaps.cartocdn.com') ||
@@ -52,14 +54,25 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Network-First strategy: Always fetch latest updates from GitHub Pages, fallback to cache when offline
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      return cached || fetch(event.request).catch(() => {
-        // Fallback for offline navigation
-        if (event.request.mode === 'navigate') {
-          return caches.match('./index.html');
+    fetch(event.request)
+      .then((response) => {
+        if (response && response.status === 200 && event.request.method === 'GET') {
+          const responseToCache = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
+          });
         }
-      });
-    })
+        return response;
+      })
+      .catch(() => {
+        return caches.match(event.request).then((cached) => {
+          if (cached) return cached;
+          if (event.request.mode === 'navigate') {
+            return caches.match('./index.html');
+          }
+        });
+      })
   );
 });

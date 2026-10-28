@@ -28,7 +28,7 @@ class UIManager {
 
   checkOnboardingReadiness() {
     // If opening on the web/GitHub page and device hasn't been chosen yet
-    if (!window.AndroidNative && !sessionStorage.getItem('manhunt_device_prompted')) {
+    if (!window.AndroidNative && !localStorage.getItem('manhunt_device_platform_v2')) {
       setTimeout(() => {
         this.openPlatformModal();
       }, 400);
@@ -982,7 +982,7 @@ class UIManager {
     const downloadApkBtn = document.getElementById('btn-download-apk');
     if (downloadApkBtn) {
       downloadApkBtn.onclick = () => {
-        sessionStorage.setItem('manhunt_device_prompted', 'true');
+        localStorage.setItem('manhunt_device_platform_v2', 'android_apk');
         const toast = document.getElementById('android-download-toast');
         if (toast) toast.style.display = 'block';
         this.showToast('📥 Downloading Manhunt.apk... Check your notifications to install.', 'info');
@@ -992,7 +992,7 @@ class UIManager {
     const androidBrowserBtn = document.getElementById('btn-android-browser');
     if (androidBrowserBtn) {
       androidBrowserBtn.onclick = () => {
-        sessionStorage.setItem('manhunt_device_prompted', 'true');
+        localStorage.setItem('manhunt_device_platform_v2', 'android_browser');
         this.closeModal('modal-device-select');
         this.showToast('Playing in mobile browser mode', 'info');
         if (!localStorage.getItem('manhunt_onboarded_v2')) {
@@ -1004,7 +1004,7 @@ class UIManager {
     const androidContinueBtn = document.getElementById('btn-android-continue-game');
     if (androidContinueBtn) {
       androidContinueBtn.onclick = () => {
-        sessionStorage.setItem('manhunt_device_prompted', 'true');
+        localStorage.setItem('manhunt_device_platform_v2', 'android_browser');
         this.closeModal('modal-device-select');
         if (!localStorage.getItem('manhunt_onboarded_v2')) {
           this.showModal('modal-onboarding');
@@ -1015,7 +1015,7 @@ class UIManager {
     const iosPlaySafariBtn = document.getElementById('btn-ios-play-safari');
     if (iosPlaySafariBtn) {
       iosPlaySafariBtn.onclick = () => {
-        sessionStorage.setItem('manhunt_device_prompted', 'true');
+        localStorage.setItem('manhunt_device_platform_v2', 'ios');
         this.closeModal('modal-device-select');
         this.showToast('Playing in Safari iOS mode', 'info');
         if (!localStorage.getItem('manhunt_onboarded_v2')) {
@@ -1027,7 +1027,7 @@ class UIManager {
     const skipPlatformBtn = document.getElementById('btn-skip-platform');
     if (skipPlatformBtn) {
       skipPlatformBtn.onclick = () => {
-        sessionStorage.setItem('manhunt_device_prompted', 'true');
+        localStorage.setItem('manhunt_device_platform_v2', 'skipped');
         this.closeModal('modal-device-select');
         if (!localStorage.getItem('manhunt_onboarded_v2')) {
           this.showModal('modal-onboarding');

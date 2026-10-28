@@ -18,10 +18,10 @@
   <link rel="apple-touch-icon" href="assets/icon-192.png">
 
   <!-- Leaflet Tactical Map CSS -->
-  <link rel="stylesheet" href="css/leaflet.css">
+  <link rel="stylesheet" href="css/leaflet.css?v=2.2">
 
   <!-- Core Tactical Stylesheet -->
-  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/styles.css?v=2.2">
 </head>
 <body class="theme-night-vision">
 
@@ -799,25 +799,49 @@
   <script src="js/leaflet.js"></script>
 
   <!-- Application Modules -->
-  <script src="js/config.js"></script>
-  <script src="js/geo.js"></script>
-  <script src="js/network.js"></script>
-  <script src="js/map.js"></script>
-  <script src="js/simulation.js"></script>
-  <script src="js/game.js"></script>
-  <script src="js/ui.js"></script>
+  <script src="js/config.js?v=2.2"></script>
+  <script src="js/geo.js?v=2.2"></script>
+  <script src="js/network.js?v=2.2"></script>
+  <script src="js/map.js?v=2.2"></script>
+  <script src="js/simulation.js?v=2.2"></script>
+  <script src="js/game.js?v=2.2"></script>
+  <script src="js/ui.js?v=2.2"></script>
 
-  <!-- Main Entrypoint & Service Worker Registration -->
+  <!-- Main Entrypoint & Service Worker Registration with Auto-Update -->
   <script>
     window.addEventListener('DOMContentLoaded', () => {
       // Initialize core systems
       Game.init();
       UI.init();
 
-      // Register PWA service worker for offline performance
+      // Clear any older stale service worker caches automatically
+      if ('caches' in window) {
+        caches.keys().then(keys => {
+          keys.forEach(k => {
+            if (k !== 'manhunt-v2.2.0') {
+              caches.delete(k);
+            }
+          });
+        });
+      }
+
+      // Register PWA service worker with auto-update check
       if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-        navigator.serviceWorker.register('./service-worker.js')
-          .then(reg => console.log('ServiceWorker registered:', reg.scope))
+        navigator.serviceWorker.register('./service-worker.js?v=2.2')
+          .then(reg => {
+            // Check for update on every page load
+            reg.update();
+            reg.addEventListener('updatefound', () => {
+              const newWorker = reg.installing;
+              if (newWorker) {
+                newWorker.addEventListener('statechange', () => {
+                  if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    window.location.reload();
+                  }
+                });
+              }
+            });
+          })
           .catch(err => console.warn('ServiceWorker registration error:', err));
       }
     });
