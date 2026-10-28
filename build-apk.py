@@ -91,8 +91,21 @@ def build_apk():
         z.write(dex_file, "classes.dex")
 
         # Web assets
+        index_path = os.path.join(BASE_DIR, "index.html")
+        with open(index_path, "r", encoding="utf-8") as f:
+            index_content = f.read()
+
+        apk_flag_script = (
+            "<head>\n"
+            "  <script>\n"
+            "    window.IS_ANDROID_APK = true;\n"
+            "    try { localStorage.setItem('manhunt_device_platform_v2', 'android'); } catch(e) {}\n"
+            "  </script>"
+        )
+        index_content = index_content.replace("<head>", apk_flag_script, 1)
+        z.writestr("assets/index.html", index_content.encode("utf-8"))
+
         web_files = [
-            ("index.html", "assets/index.html"),
             ("manifest.json", "assets/manifest.json"),
             ("privacy-policy.html", "assets/privacy-policy.html"),
             ("service-worker.js", "assets/service-worker.js")

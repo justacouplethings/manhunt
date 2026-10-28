@@ -26,9 +26,44 @@ class UIManager {
     this.checkOnboardingReadiness();
   }
 
+  isInstalledApk() {
+    return (
+      window.IS_ANDROID_APK === true ||
+      window.location.protocol === 'file:' ||
+      window.location.href.includes('android_asset') ||
+      !!window.AndroidNative ||
+      (typeof navigator !== 'undefined' && navigator.userAgent && navigator.userAgent.includes('wv')) ||
+      (typeof navigator !== 'undefined' && navigator.userAgent && navigator.userAgent.includes('Android') && /Version\/[0-9.]+/i.test(navigator.userAgent))
+    );
+  }
+
+  isAppEnvironment() {
+    return (
+      this.isInstalledApk() ||
+      (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+      (typeof navigator !== 'undefined' && window.navigator.standalone === true)
+    );
+  }
+
   checkOnboardingReadiness() {
-    // If opening on the web/GitHub page and device hasn't been chosen yet
-    if (!window.AndroidNative && !localStorage.getItem('manhunt_device_platform_v2')) {
+    // If inside the installed APK or standalone app, NEVER prompt for Android/iPhone selection
+    if (this.isAppEnvironment()) {
+      localStorage.setItem('manhunt_device_platform_v2', 'android');
+      const onboarded = localStorage.getItem('manhunt_onboarded_v2');
+      if (!onboarded) {
+        setTimeout(() => {
+          this.showModal('modal-onboarding');
+        }, 150);
+      }
+      this.refreshReadinessBadges();
+      if (window.AndroidNative && window.AndroidNative.requestLocationPermissions) {
+        window.AndroidNative.requestLocationPermissions();
+      }
+      return;
+    }
+
+    // Only for web visitors on desktop/Safari who haven't selected their device yet
+    if (!localStorage.getItem('manhunt_device_platform_v2')) {
       setTimeout(() => {
         this.openPlatformModal();
       }, 400);
@@ -45,6 +80,9 @@ class UIManager {
   }
 
   openPlatformModal() {
+    // If running in the installed APK or standalone app, immediately abort
+    if (this.isAppEnvironment()) return;
+
     const stepChoose = document.getElementById('device-step-choose');
     const stepAndroid = document.getElementById('device-step-android');
     const stepIos = document.getElementById('device-step-ios');

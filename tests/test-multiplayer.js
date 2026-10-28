@@ -81,6 +81,11 @@ async function runMultiplayerTest() {
       return cards.length >= 2;
     }, { timeout: 8000 });
 
+    await pageB.waitForFunction(() => {
+      const cards = document.querySelectorAll('#waiting-player-list .player-card');
+      return cards.length >= 2;
+    }, { timeout: 8000 });
+
     const rosterA = await pageA.locator('#waiting-player-list .player-card').count();
     const rosterB = await pageB.locator('#waiting-player-list .player-card').count();
     console.log(`    ✅ Roster on Host (Alice): ${rosterA} players, Roster on Friend (Bob): ${rosterB} players`);
@@ -127,13 +132,18 @@ async function runMultiplayerTest() {
 
     // 7. Verify Tag Detection & Runner Mobile Confirmation
     console.log('[7] Testing Tag Detection & Runner Confirmation Modal...');
-    // Allow geolocation update and distance evaluation (~11m, well within 25m)
-    await pageA.waitForTimeout(2000);
+    // Bob emits runner ping to reveal his location to pursuers
+    await pageB.evaluate(() => {
+      Game.broadcastRunnerPing(Game.lastSelfCoords || { lat: 40.7129, lng: -74.0060 });
+    });
 
+    // Wait for Alice's Seeker tag button to become illuminated
     const tagBtn = pageA.locator('#btn-tag-runner');
-    await tagBtn.waitFor({ state: 'visible', timeout: 5000 });
-    const isTagReady = await tagBtn.evaluate(el => el.classList.contains('tag-ready'));
-    console.log(`    ✅ Seeker Tag Button ready state: ${isTagReady}`);
+    await pageA.waitForFunction(() => {
+      const btn = document.getElementById('btn-tag-runner');
+      return btn && btn.classList.contains('tag-ready');
+    }, { timeout: 8000 });
+    console.log('    ✅ Seeker Tag Button illuminated into ready state');
 
     // Alice taps Tag Bob
     console.log('    ⚡ Seeker (Alice) tapping Tag button...');

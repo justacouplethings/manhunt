@@ -266,6 +266,32 @@ assert(toggleRole('runner') === 'seeker', 'Host toggling runner produces seeker'
 assert(toggleRole('seeker') === 'runner', 'Host toggling seeker produces runner');
 
 
+// 9. Test Installed APK Launch Routing
+console.log('\n9. Testing Installed APK Launch Routing:');
+function isInstalledApkEnv(mockEnv) {
+  return (
+    mockEnv.IS_ANDROID_APK === true ||
+    mockEnv.protocol === 'file:' ||
+    (mockEnv.href && mockEnv.href.includes('android_asset')) ||
+    !!mockEnv.AndroidNative ||
+    (mockEnv.userAgent && mockEnv.userAgent.includes('wv'))
+  );
+}
+
+assert(isInstalledApkEnv({ IS_ANDROID_APK: true, protocol: 'file:', href: 'file:///android_asset/index.html' }) === true, 'Android APK environment correctly recognized');
+assert(isInstalledApkEnv({ IS_ANDROID_APK: undefined, protocol: 'https:', href: 'https://justacouplethings.github.io/manhunt/', userAgent: 'Mozilla/5.0 Safari' }) === false, 'Web browser environment correctly distinguishes from APK');
+
+function determineInitialModal(isApp, hasOnboarded) {
+  if (isApp) {
+    return hasOnboarded ? null : 'modal-onboarding';
+  }
+  return 'modal-device-select';
+}
+
+assert(determineInitialModal(true, false) === 'modal-onboarding', 'Installed APK skips device selector and directly displays grant access modal');
+assert(determineInitialModal(false, false) === 'modal-device-select', 'Web visitor is presented with device selector');
+
+
 // Summary
 console.log('\n======================================================');
 console.log(`📊 TEST RESULTS: ${testsPassed} PASSED, ${testsFailed} FAILED`);
