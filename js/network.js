@@ -198,7 +198,8 @@ class NetworkEngine {
       boundaryCenter: Game ? Game.boundaryCenter : null,
       boundaryRadiusMeters: typeof Config !== 'undefined' ? Config.settings.boundaryRadiusMeters : 1500,
       settings: typeof Config !== 'undefined' ? Config.settings : {},
-      peers: Array.from(this.peers.values())
+      peers: Array.from(this.peers.values()),
+      lastGameOverData: Game ? Game.lastGameOverData : null
     });
   }
 
@@ -294,7 +295,7 @@ class NetworkEngine {
     sendSingle();
 
     // Critical actions retransmit twice with short delays to eliminate mobile cellular packet loss
-    const criticalActions = ['start_game', 'host_command', 'admin_command', 'role_assigned', 'tag_request', 'tag_confirmed', 'tag_disputed', 'settings_sync'];
+    const criticalActions = ['start_game', 'match_over', 'game_over', 'host_command', 'admin_command', 'role_assigned', 'tag_request', 'tag_confirmed', 'tag_disputed', 'settings_sync'];
     if (isCritical || criticalActions.includes(action)) {
       setTimeout(sendSingle, 250);
       setTimeout(sendSingle, 600);
@@ -386,6 +387,8 @@ class NetworkEngine {
       this.emit('host_command', data);
     } else if (action === 'admin_command') {
       this.emit('admin_command', data);
+    } else if (action === 'match_over' || action === 'game_over') {
+      this.emit('match_over', data);
     } else if (action === 'tag_event') {
       this.emit('tag_event', data);
     } else if (action === 'settings_sync') {

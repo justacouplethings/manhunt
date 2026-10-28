@@ -23,8 +23,10 @@ class ManhuntGame {
     this.isPaused = false;
     this.taggedRunners = new Set();
     this.activeRunners = new Set();
+    this.initialRunners = new Set();
     this.activeSeekers = new Set();
     this.matchStartTimestamp = 0;
+    this.lastGameOverData = null;
     this.lockedTargetId = null;
     this.seekerPingCountdown = 0;
     this.pendingTagRequest = null;
@@ -74,7 +76,9 @@ class ManhuntGame {
     this.lastKnownPositions.clear();
     this.taggedRunners.clear();
     this.activeRunners.clear();
+    this.initialRunners.clear();
     this.activeSeekers.clear();
+    this.lastGameOverData = null;
 
     // Clear network peers
     if (typeof Network !== 'undefined' && Network.peers) {
@@ -169,6 +173,10 @@ class ManhuntGame {
 
     Network.on('tag_event', (data) => {
       this.onRemoteTagConfirmed(data);
+    });
+
+    Network.on('match_over', (data) => {
+      this.onRemoteGameOver(data);
     });
 
     Network.on('settings_synced', (newSettings) => {
@@ -328,6 +336,12 @@ class ManhuntGame {
         startTimestamp: data.matchStartTimestamp || Date.now()
       });
     }
+
+    // Auto catch-up if operation concluded on host
+    if (data.state === 'GAME_OVER' && this.state !== 'GAME_OVER' && this.state !== 'LOBBY') {
+      console.log('Synchronizing into concluded match via host beacon...');
+      this.endGame(data.lastGameOverData || { winner: 'Seekers', reason: 'all_runners_tagged' });
+    }
   }
 
   updatePlayerRoster() {
@@ -422,15 +436,26 @@ class ManhuntGame {
     this.isOutOfBounds = false;
     this.taggedRunners.clear();
 
-    // Populate active lists
+    // Populate active and initial participant lists
     this.activeRunners.clear();
     this.activeSeekers.clear();
-    if (this.role === 'runner') this.activeRunners.add(Network.playerId);
-    else this.activeSeekers.add(Network.playerId);
+    this.initialRunners.clear();
+    this.lastGameOverData = null;
+
+    if (this.role === 'runner') {
+      this.activeRunners.add(Network.playerId);
+      this.initialRunners.add(Network.playerId);
+    } else {
+      this.activeSeekers.add(Network.playerId);
+    }
 
     for (const [id, peer] of Network.peers.entries()) {
-      if (peer.role === 'runner') this.activeRunners.add(id);
-      else if (peer.role === 'seeker') this.activeSeekers.add(id);
+      if (peer.role === 'runner') {
+        this.activeRunners.add(id);
+        this.initialRunners.add(id);
+      } else if (peer.role === 'seeker') {
+        this.activeSeekers.add(id);
+      }
     }
 
     // Initialize tactical map with center
@@ -509,7 +534,19 @@ class ManhuntGame {
       this.gameTimeRemaining--;
       UI.updateMatchTimeRemaining(this.gameTimeRemaining);
       if (this.gameTimeRemaining <= 0) {
-        this.endGame('time_expired');
+        const gameOverPayload = {
+          winner: 'Runners',
+          reason: 'time_expired',
+          message: 'Time expired! Surviving runners successfully evaded pursuit!',
+          duration: Math.round((Date.now() - this.matchStartTimestamp) / 1000),
+          totalRunners: this.initialRunners ? this.initialRunners.size : this.activeRunners.size,
+          taggedCount: this.taggedRunners.size,
+          timestamp: Date.now()
+        };
+        if (this.isHost) {
+          Network.broadcast('match_over', gameOverPayload, true);
+        }
+        this.endGame(gameOverPayload);
         return;
       }
     }
@@ -1154,20 +1191,70 @@ class ManhuntGame {
   }
 
   checkVictoryConditions() {
+    if (this.state === 'GAME_OVER' || this.state === 'LOBBY' || this.state === 'WAITING') return;
+
+    // Use initialRunners if populated; fallback to activeRunners or Network peers
+    const runnerPool = (this.initialRunners && this.initialRunners.size > 0) ? this.initialRunners : this.activeRunners;
+
     let untaggedCount = 0;
-    for (const runnerId of this.activeRunners) {
+    for (const runnerId of runnerPool) {
       if (!this.taggedRunners.has(runnerId)) {
         untaggedCount++;
       }
     }
 
-    if (untaggedCount === 0 && this.activeRunners.size > 0) {
-      this.endGame('all_runners_tagged');
+    // Also check if any peer in Network is an untagged runner
+    for (const [id, peer] of Network.peers.entries()) {
+      if (peer.role === 'runner' && !this.taggedRunners.has(id)) {
+        if (!runnerPool.has(id)) {
+          untaggedCount++;
+        }
+      }
+    }
+
+    // Also check self if local player is runner
+    if (this.role === 'runner' && !this.taggedRunners.has(Network.playerId)) {
+      if (!runnerPool.has(Network.playerId)) {
+        untaggedCount++;
+      }
+    }
+
+    const totalRunnersCount = Math.max(runnerPool.size, this.taggedRunners.size);
+
+    console.log(`[VICTORY CHECK] Untagged runners remaining: ${untaggedCount}, Total match runners: ${totalRunnersCount}`);
+
+    // If all runners have been tagged and there was at least 1 runner in the match
+    if (untaggedCount === 0 && totalRunnersCount > 0) {
+      const gameOverPayload = {
+        winner: 'Seekers',
+        reason: 'all_runners_tagged',
+        message: Config.settings.runnerCaptureMode === 'infection'
+          ? 'Infection complete! All runners were hunted down and converted!'
+          : 'All runners were captured by the seekers!',
+        duration: Math.round((Date.now() - this.matchStartTimestamp) / 1000),
+        totalRunners: totalRunnersCount,
+        taggedCount: this.taggedRunners.size,
+        timestamp: Date.now()
+      };
+
+      // Broadcast to all clients across the room with burst reliability
+      Network.broadcast('match_over', gameOverPayload, true);
+
+      // Conclude local game
+      this.endGame(gameOverPayload);
     }
   }
 
-  endGame(reason) {
+  onRemoteGameOver(data) {
+    if (this.state === 'GAME_OVER') return;
+    console.log('🏆 Global match_over broadcast received:', data);
+    this.endGame(data);
+  }
+
+  endGame(payloadOrReason) {
+    if (this.state === 'GAME_OVER') return;
     this.state = 'GAME_OVER';
+
     if (this.gameLoopInterval) {
       clearInterval(this.gameLoopInterval);
       this.gameLoopInterval = null;
@@ -1175,18 +1262,43 @@ class ManhuntGame {
 
     let winner = 'Seekers';
     let message = '';
+    let duration = Math.round((Date.now() - this.matchStartTimestamp) / 1000);
+    const runnerPool = (this.initialRunners && this.initialRunners.size > 0) ? this.initialRunners : this.activeRunners;
+    let totalRunners = runnerPool.size;
+    let taggedCount = this.taggedRunners.size;
 
-    if (reason === 'all_runners_tagged') {
-      winner = 'Seekers';
-      message = Config.settings.runnerCaptureMode === 'infection'
-        ? 'Infection complete! All runners were hunted down and converted!'
-        : 'All runners were captured by the seekers!';
-      UI.playAudioCue('victory');
-    } else if (reason === 'time_expired') {
-      winner = 'Runners';
-      message = 'Time expired! Surviving runners successfully evaded pursuit!';
-      UI.playAudioCue('victory');
+    if (typeof payloadOrReason === 'object' && payloadOrReason !== null) {
+      winner = payloadOrReason.winner || 'Seekers';
+      message = payloadOrReason.message || '';
+      duration = payloadOrReason.duration || duration;
+      totalRunners = payloadOrReason.totalRunners || totalRunners;
+      taggedCount = payloadOrReason.taggedCount || taggedCount;
+      this.lastGameOverData = payloadOrReason;
+    } else {
+      const reason = payloadOrReason;
+      if (reason === 'all_runners_tagged') {
+        winner = 'Seekers';
+        message = Config.settings.runnerCaptureMode === 'infection'
+          ? 'Infection complete! All runners were hunted down and converted!'
+          : 'All runners were captured by the seekers!';
+      } else if (reason === 'time_expired') {
+        winner = 'Runners';
+        message = 'Time expired! Surviving runners successfully evaded pursuit!';
+      } else if (reason === 'admin_terminated') {
+        winner = 'Operation Aborted';
+        message = 'Match terminated by System Administrator.';
+      }
+      this.lastGameOverData = {
+        winner,
+        reason,
+        message,
+        duration,
+        totalRunners: Math.max(totalRunners, taggedCount),
+        taggedCount
+      };
     }
+
+    UI.playAudioCue('victory');
 
     UI.notifyCriticalEvent(
       'OPERATION CONCLUDED',
@@ -1194,12 +1306,13 @@ class ManhuntGame {
       'info'
     );
 
+    // Pull ALL players (runners and seekers) out of the active map and show Game Over screen
     UI.showGameOverScreen({
       winner,
       message,
-      duration: Math.round((Date.now() - this.matchStartTimestamp) / 1000),
-      totalRunners: this.activeRunners.size,
-      taggedCount: this.taggedRunners.size
+      duration,
+      totalRunners: Math.max(totalRunners, taggedCount),
+      taggedCount
     });
   }
 

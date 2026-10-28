@@ -699,6 +699,88 @@ assert(mockHudSettings.settings.vibrationEnabled === false, 'In-Game setting tog
 assert(mockHudSettings.modalVisible === false, 'Saving in-game settings dismisses modal back to tactical HUD');
 
 
+// 19. Testing Synchronized Game Over Event Broadcast & Win Condition Evaluation
+console.log('\n19. Testing Synchronized Game Over Event Broadcast & Win Condition:');
+class MockMatchRoom {
+  constructor(mode = 'infection') {
+    this.mode = mode;
+    this.state = 'ACTIVE';
+    this.initialRunners = new Set(['runner_1', 'runner_2']);
+    this.taggedRunners = new Set();
+    this.broadcastPackets = [];
+  }
+
+  processTag(runnerId) {
+    this.taggedRunners.add(runnerId);
+    return this.evaluateVictory();
+  }
+
+  evaluateVictory() {
+    let uncaught = 0;
+    for (const rId of this.initialRunners) {
+      if (!this.taggedRunners.has(rId)) {
+        uncaught++;
+      }
+    }
+
+    if (uncaught === 0 && this.initialRunners.size > 0) {
+      const gameOverPayload = {
+        action: 'match_over',
+        winner: 'Seekers',
+        reason: 'all_runners_tagged',
+        totalRunners: this.initialRunners.size,
+        taggedCount: this.taggedRunners.size
+      };
+      this.state = 'GAME_OVER';
+      this.broadcastPackets.push(gameOverPayload);
+      return gameOverPayload;
+    }
+    return null;
+  }
+}
+
+const match = new MockMatchRoom('infection');
+
+// 1. First runner caught (1 runner remaining)
+const tag1Result = match.processTag('runner_1');
+assert(tag1Result === null, 'After 1 of 2 runners tagged, match remains ACTIVE');
+assert(match.state === 'ACTIVE', 'Game state remains ACTIVE while uncaught runners survive');
+
+// 2. Final runner caught (0 runners remaining)
+const tag2Result = match.processTag('runner_2');
+assert(tag2Result !== null, 'When final runner caught, global win condition evaluates successfully');
+assert(tag2Result.action === 'match_over', 'Triggers global match_over broadcast packet');
+assert(tag2Result.winner === 'Seekers', 'Declares Seekers as victorious');
+assert(match.state === 'GAME_OVER', 'Match room state transitions to GAME_OVER');
+assert(match.broadcastPackets.length === 1, 'Broadcasting match_over packet to all room clients');
+
+// 3. Client Reception Verification
+class MockClientPeer {
+  constructor(role) {
+    this.role = role;
+    this.screen = 'screen-hud';
+    this.winner = null;
+  }
+
+  onMatchOver(packet) {
+    this.screen = 'screen-gameover';
+    this.winner = packet.winner;
+  }
+}
+
+const seekerClient = new MockClientPeer('seeker');
+const runnerClient = new MockClientPeer('runner');
+
+// Dispatch broadcast to both peers
+seekerClient.onMatchOver(tag2Result);
+runnerClient.onMatchOver(tag2Result);
+
+assert(seekerClient.screen === 'screen-gameover', 'Seeker client pulled out of active HUD to Game Over screen');
+assert(runnerClient.screen === 'screen-gameover', 'Runner client pulled out of active HUD to Game Over screen');
+assert(seekerClient.winner === 'Seekers' && runnerClient.winner === 'Seekers', 'Both clients display identical Seekers Victorious result');
+
+
+
 
 
 

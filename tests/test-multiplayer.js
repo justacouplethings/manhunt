@@ -166,11 +166,27 @@ async function runMultiplayerTest() {
 
     // 8. Verify Infection Mode: Bob converts to Seeker
     console.log('[8] Verifying Infection Mode (Bob converted to Seeker)...');
-    await pageB.waitForTimeout(1500);
+    await pageB.waitForTimeout(1000);
     const bobIsSeeker = await pageB.evaluate(() => Game.role === 'seeker');
     console.log(`    ✅ Bob role after infection: "${bobIsSeeker ? 'seeker' : 'runner'}"`);
     if (!bobIsSeeker) {
       throw new Error('Infection mode failed: Bob did not convert to Seeker');
+    }
+
+    // 9. Verify Synchronized Game Over State across Seeker and Runner
+    console.log('[9] Verifying Synchronized Game Over State (Seekers Victorious across both clients)...');
+    // Both Alice (Seeker) and Bob (Runner) must see #screen-gameover
+    await pageA.locator('#screen-gameover').waitFor({ state: 'visible', timeout: 6000 });
+    console.log('    ✅ Seeker (Alice) pulled out of active HUD to Game Over screen!');
+
+    await pageB.locator('#screen-gameover').waitFor({ state: 'visible', timeout: 6000 });
+    console.log('    ✅ Runner (Bob) pulled out of active HUD to Game Over screen!');
+
+    const winnerTextA = await pageA.textContent('#gameover-winner');
+    const winnerTextB = await pageB.textContent('#gameover-winner');
+    console.log(`    ✅ Game Over Readout: "${winnerTextA}" on Seeker, "${winnerTextB}" on Runner`);
+    if (!winnerTextA.includes('SEEKERS') || !winnerTextB.includes('SEEKERS')) {
+      throw new Error('Game Over winner text mismatch or incomplete');
     }
 
     console.log('\n======================================================');

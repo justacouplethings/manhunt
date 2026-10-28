@@ -797,6 +797,11 @@ class UIManager {
   }
 
   showGameOverScreen(data) {
+    // Close all open modals when transitioning to Game Over
+    ['modal-runner-tag-confirm', 'modal-captured', 'modal-host-controls', 'modal-target-selector', 'modal-ingame-settings'].forEach(m => {
+      this.closeModal(m);
+    });
+
     this.showScreen('screen-gameover');
     const winnerEl = document.getElementById('gameover-winner');
     const descEl = document.getElementById('gameover-desc');
