@@ -120,8 +120,11 @@ async function runMultiplayerTest() {
     await pageA.waitForTimeout(800);
 
     // 6. Host launches match
-    console.log('[6] Host launching operation...');
+    console.log('[6] Host launching operation (confirming boundary prompt)...');
     await pageA.locator('#btn-start-match').click();
+    const boundaryConfirmBtn = pageA.locator('#btn-confirm-start-match');
+    await boundaryConfirmBtn.waitFor({ state: 'visible', timeout: 3000 });
+    await boundaryConfirmBtn.click();
 
     // Verify both clients enter the active HUD
     await pageA.locator('#screen-hud').waitFor({ state: 'visible', timeout: 5000 });

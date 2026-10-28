@@ -17,6 +17,7 @@ const DEFAULT_CONFIG = {
   proximityAlertMeters: 100,      // Proximity alarm triggers within meters (0 = off, 25, 50, 75, 100, 150, 200)
   proximityAlertInterval: 10,     // Beep interval in seconds when seeker is near
   boundaryRadiusMeters: 1500,     // Play boundary (0 = off, 250, 500, 1000, 1500, 2000, 3000, 5000)
+  flareCooldownSeconds: 60,       // Cooldown duration between manual runner flares (prevents notification spam)
 
   // Sensory & Hardware
   soundEnabled: true,             // Tactical audio synthesizer

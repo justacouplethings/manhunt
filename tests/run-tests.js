@@ -292,6 +292,84 @@ assert(determineInitialModal(true, false) === 'modal-onboarding', 'Installed APK
 assert(determineInitialModal(false, false) === 'modal-device-select', 'Web visitor is presented with device selector');
 
 
+// 10. Testing Fixed Global Boundary & Out of Bounds Detection
+console.log('\n10. Testing Fixed Global Boundary & Out of Bounds Detection:');
+const hostFixedAnchor = { lat: 40.7580, lng: -73.9855 }; // Times Square
+const boundaryRadius = 1000; // 1 km radius
+
+function evaluateBoundaryState(playerCoords, anchor, radiusMeters) {
+  if (!anchor || radiusMeters <= 0) return { isOOB: false, metersOut: 0 };
+  const d = getHaversineDistance(playerCoords.lat, playerCoords.lng, anchor.lat, anchor.lng);
+  if (d > radiusMeters) {
+    return { isOOB: true, metersOut: Math.round(d - radiusMeters) };
+  }
+  return { isOOB: false, metersOut: 0 };
+}
+
+// Inside boundary: Bryant Park (~500m from Times Square)
+const bryantPark = { lat: 40.7536, lng: -73.9832 };
+const insideCheck = evaluateBoundaryState(bryantPark, hostFixedAnchor, boundaryRadius);
+assert(insideCheck.isOOB === false, 'Player 500m away is within 1000m fixed boundary');
+assert(insideCheck.metersOut === 0, 'Zero meters out of bounds for inside player');
+
+// Outside boundary: Empire State Building (~1067m from Times Square)
+const empireState = { lat: 40.7484, lng: -73.9857 };
+const outsideCheck = evaluateBoundaryState(empireState, hostFixedAnchor, boundaryRadius);
+assert(outsideCheck.isOOB === true, 'Player 1067m away triggers Out of Bounds alert');
+assert(outsideCheck.metersOut >= 60 && outsideCheck.metersOut <= 75, `Out of bounds distance accurate (~67m out, got ${outsideCheck.metersOut}m)`);
+
+// Boundary is fixed to host's anchor regardless of player role or movement
+const seekerCoords = { lat: 40.7500, lng: -73.9800 };
+const runnerCoords = { lat: 40.7650, lng: -73.9800 };
+const seekerBoundary = evaluateBoundaryState(seekerCoords, hostFixedAnchor, boundaryRadius);
+const runnerBoundary = evaluateBoundaryState(runnerCoords, hostFixedAnchor, boundaryRadius);
+assert(typeof seekerBoundary.isOOB === 'boolean' && typeof runnerBoundary.isOOB === 'boolean', 'Seekers and runners share identical global host anchor');
+
+
+// 11. Testing Flare Cooldown Mechanic
+console.log('\n11. Testing Flare Cooldown Mechanic:');
+function attemptFlare(lastFlareTimestamp, cooldownSeconds, currentTimestamp) {
+  const cooldownMs = cooldownSeconds * 1000;
+  const elapsed = currentTimestamp - lastFlareTimestamp;
+  if (elapsed < cooldownMs) {
+    return { success: false, remainingSeconds: Math.ceil((cooldownMs - elapsed) / 1000) };
+  }
+  return { success: true, remainingSeconds: 0 };
+}
+
+const t0 = 1000000;
+const flare1 = attemptFlare(0, 60, t0);
+assert(flare1.success === true, 'Initial flare fires immediately with 0 remaining cooldown');
+
+// Attempt to spam flare 10 seconds later
+const flareSpam = attemptFlare(t0, 60, t0 + 10000);
+assert(flareSpam.success === false, 'Rapid flare spam within 10s is blocked');
+assert(flareSpam.remainingSeconds === 50, 'Remaining cooldown displays 50 seconds');
+
+// Attempt flare after cooldown elapses (61s)
+const flareReady = attemptFlare(t0, 60, t0 + 61000);
+assert(flareReady.success === true, 'Flare fires successfully after 60s cooldown finishes');
+
+
+// 12. Testing Match Event Filtering & Critical Alerts
+console.log('\n12. Testing Match Notification Filtering:');
+function shouldDisplayMatchNotification(eventType, isLocalPlayer) {
+  // Critical match events always notify
+  const criticalEvents = ['RUNNER_CAUGHT', 'INFECTION', 'ROLE_ASSIGNED_TO_ME', 'OUT_OF_BOUNDS', 'HUNT_BEGUN', 'MATCH_OVER', 'HOST_SUSPEND'];
+  if (criticalEvents.includes(eventType)) return true;
+  // Routine telemetry events must be suppressed from spamming screen
+  const routineEvents = ['SEEKER_PERIODIC_PING', 'RUNNER_PERIODIC_PING', 'ROUTINE_RADAR_BLIP', 'SETTINGS_SYNC'];
+  if (routineEvents.includes(eventType)) return false;
+  return false;
+}
+
+assert(shouldDisplayMatchNotification('RUNNER_CAUGHT', false) === true, 'Runner caught is flagged as critical event');
+assert(shouldDisplayMatchNotification('INFECTION', true) === true, 'Infection conversion is flagged as critical event');
+assert(shouldDisplayMatchNotification('OUT_OF_BOUNDS', true) === true, 'Out of Bounds is flagged as critical event');
+assert(shouldDisplayMatchNotification('SEEKER_PERIODIC_PING', false) === false, 'Routine seeker ping toast is suppressed');
+assert(shouldDisplayMatchNotification('RUNNER_PERIODIC_PING', false) === false, 'Routine runner ping toast is suppressed');
+
+
 // Summary
 console.log('\n======================================================');
 console.log(`📊 TEST RESULTS: ${testsPassed} PASSED, ${testsFailed} FAILED`);

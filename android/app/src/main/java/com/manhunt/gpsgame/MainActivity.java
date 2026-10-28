@@ -21,10 +21,16 @@ import android.provider.Settings;
 public class MainActivity extends Activity {
     private WebView webView;
     private static final int PERMISSION_REQUEST_CODE = 1001;
+    private static MainActivity instance;
+
+    public static MainActivity getInstance() {
+        return instance;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        instance = this;
 
         // Immersive full-screen window
         requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -60,13 +66,67 @@ public class MainActivity extends Activity {
             }
         });
 
-        // Add JavaScript bridge for permissions & battery management
+        // Add JavaScript bridge for permissions, background services & notifications
         webView.addJavascriptInterface(new AndroidBridge(), "AndroidNative");
 
         // Initial permissions check on launch
         requestAllPermissionsInternal();
 
         webView.loadUrl("file:///android_asset/index.html");
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (webView != null) {
+            webView.resumeTimers();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // Keep timers running in background so WebSocket and location loop do not freeze
+        if (webView != null) {
+            webView.resumeTimers();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (instance == this) {
+            instance = null;
+        }
+    }
+
+    public void onNativeLocationReceived(final double lat, final double lng, final float speed, final float heading, final float accuracy) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (webView != null) {
+                    String script = String.format(
+                        "if(typeof Geo !== 'undefined' && Geo.processNativeLocation){ Geo.processNativeLocation(%f, %f, %f, %f, %f); }",
+                        lat, lng, speed, heading, accuracy
+                    );
+                    webView.evaluateJavascript(script, null);
+                }
+            }
+        });
+    }
+
+    public void startForegroundTrackingService() {
+        Intent intent = new Intent(this, LocationService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent);
+        } else {
+            startService(intent);
+        }
+    }
+
+    public void stopForegroundTrackingService() {
+        Intent intent = new Intent(this, LocationService.class);
+        stopService(intent);
     }
 
     public void requestAllPermissionsInternal() {
@@ -89,6 +149,39 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public boolean isNative() {
             return true;
+        }
+
+        @JavascriptInterface
+        public void startBackgroundService() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    startForegroundTrackingService();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void stopBackgroundService() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    stopForegroundTrackingService();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void showNotification(final String title, final String message) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    LocationService service = LocationService.getInstance();
+                    if (service != null) {
+                        service.showCriticalEventNotification(title, message);
+                    }
+                }
+            });
         }
 
         @JavascriptInterface
@@ -127,7 +220,6 @@ public class MainActivity extends Activity {
                                 startActivity(intent);
                             }
                         } catch (Exception e) {
-                            // Fallback to general battery settings if direct request fails
                             try {
                                 Intent fallback = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
                                 startActivity(fallback);

@@ -98,6 +98,26 @@ class GeoEngine {
     );
 
     this.isTracking = true;
+
+    // Start native Android foreground location service if running in APK
+    if (typeof window !== 'undefined' && window.AndroidNative && window.AndroidNative.startBackgroundService) {
+      try {
+        window.AndroidNative.startBackgroundService();
+      } catch (e) {}
+    }
+  }
+
+  processNativeLocation(lat, lng, speed, heading, accuracy) {
+    const coords = {
+      lat: lat,
+      lng: lng,
+      accuracy: accuracy || 5,
+      speed: speed >= 0 ? speed : null,
+      heading: heading >= 0 ? heading : (this.currentPosition ? this.currentPosition.heading : null),
+      timestamp: Date.now()
+    };
+    this.currentPosition = coords;
+    this.notifyLocation(coords);
   }
 
   handlePosition(pos) {
@@ -120,6 +140,13 @@ class GeoEngine {
       this.watchId = null;
     }
     this.isTracking = false;
+
+    // Stop native Android background service
+    if (typeof window !== 'undefined' && window.AndroidNative && window.AndroidNative.stopBackgroundService) {
+      try {
+        window.AndroidNative.stopBackgroundService();
+      } catch (e) {}
+    }
   }
 
   getCurrentPosition(options = { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }) {

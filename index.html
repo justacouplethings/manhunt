@@ -240,12 +240,15 @@
       </div>
 
       <div class="roster-container">
-        <div class="card-title" style="margin-bottom:12px;">Active Squad Roster</div>
-        <div id="waiting-player-list">
+        <div class="roster-header-row">
+          <div class="card-title" style="margin-bottom:0;">Active Squad Roster</div>
+          <span id="roster-count-badge" class="roster-count-badge">1 SQUAD MEMBER</span>
+        </div>
+        <div id="waiting-player-list" class="scrollable-player-list">
           <!-- Dynamically populated -->
         </div>
 
-        <div style="margin-top:24px;">
+        <div style="margin-top:16px;">
           <button type="button" id="btn-start-match" class="btn-primary" style="display:none;">
             <span>🚀</span> LAUNCH OPERATION
           </button>
@@ -326,6 +329,15 @@
           <div class="ping-progress-track">
             <div id="hud-ping-progress" class="ping-progress-fill"></div>
           </div>
+        </div>
+
+        <!-- Out of Bounds Alert Banner -->
+        <div id="hud-oob-banner" class="hud-oob-banner" style="display:none;">
+          <div class="oob-top">
+            <span>⚠️ OUT OF BOUNDS!</span>
+            <span id="hud-oob-distance">0m OUT</span>
+          </div>
+          <div class="oob-desc">You have left the operation boundary! Return immediately!</div>
         </div>
       </div>
 
@@ -760,6 +772,45 @@
       </div>
     </div>
 
+    <!-- Modal Host Boundary Prompt / Confirmation -->
+    <div id="modal-boundary-confirm" class="modal-backdrop">
+      <div class="modal-content" style="max-width:440px; text-align:left;">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+          <span style="font-size:2rem;">🌐</span>
+          <div>
+            <h2 style="font-size:1.2rem; font-weight:900;">SET OPERATION BOUNDARY</h2>
+            <div style="font-size:0.75rem; color:var(--theme-text-secondary);">Fixed global arena for all players</div>
+          </div>
+        </div>
+
+        <p style="color:var(--theme-text-secondary); font-size:0.85rem; line-height:1.5; margin-bottom:14px;">
+          Choose the boundary radius for the match. Your current GPS position anchors the fixed boundary circle for all runners and seekers. Leaving this zone triggers an Out of Bounds alert.
+        </p>
+
+        <div id="boundary-anchor-coords" style="font-family:var(--font-mono); font-size:0.75rem; color:var(--theme-accent-cyan); background:rgba(0,212,255,0.08); padding:8px 12px; border-radius:var(--radius-md); border:1px solid rgba(0,212,255,0.2); margin-bottom:14px;">
+          📍 Anchor Position: Acquiring GPS...
+        </div>
+
+        <div class="input-group" style="margin-bottom:18px;">
+          <label class="input-label" for="prompt-boundary-radius">Play Boundary Radius</label>
+          <select id="prompt-boundary-radius" class="tactical-input">
+            <option value="250">250 Meters (Small Park / Campus)</option>
+            <option value="500">500 Meters (Neighborhood)</option>
+            <option value="1000">1.0 Kilometer (Standard District)</option>
+            <option value="1500" selected>1.5 Kilometers (Wide District)</option>
+            <option value="3000">3.0 Kilometers (City Scale)</option>
+            <option value="5000">5.0 Kilometers (Large Area)</option>
+            <option value="0">Off (No Boundary)</option>
+          </select>
+        </div>
+
+        <div style="display:flex; gap:10px;">
+          <button type="button" id="btn-cancel-boundary-confirm" class="btn-secondary" style="flex:1;">CANCEL</button>
+          <button type="button" id="btn-confirm-start-match" class="btn-primary" style="flex:1;">START MATCH</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Device Platform & Installation Modal -->
     <div id="modal-device-select" class="modal-backdrop">
       <div class="modal-content" style="max-width:440px; text-align:center;">
@@ -896,13 +947,13 @@
   <script src="js/leaflet.js"></script>
 
   <!-- Application Modules -->
-  <script src="js/config.js?v=2.3"></script>
-  <script src="js/geo.js?v=2.3"></script>
-  <script src="js/network.js?v=2.3"></script>
-  <script src="js/map.js?v=2.3"></script>
-  <script src="js/simulation.js?v=2.3"></script>
-  <script src="js/game.js?v=2.3"></script>
-  <script src="js/ui.js?v=2.3"></script>
+  <script src="js/config.js?v=2.4"></script>
+  <script src="js/geo.js?v=2.4"></script>
+  <script src="js/network.js?v=2.4"></script>
+  <script src="js/map.js?v=2.4"></script>
+  <script src="js/simulation.js?v=2.4"></script>
+  <script src="js/game.js?v=2.4"></script>
+  <script src="js/ui.js?v=2.4"></script>
 
   <!-- Main Entrypoint & Service Worker Registration with Auto-Update -->
   <script>
@@ -915,7 +966,7 @@
       if ('caches' in window) {
         caches.keys().then(keys => {
           keys.forEach(k => {
-            if (k !== 'manhunt-v2.3.0') {
+            if (k !== 'manhunt-v2.4.0') {
               caches.delete(k);
             }
           });
@@ -924,7 +975,7 @@
 
       // Register PWA service worker with auto-update check
       if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-        navigator.serviceWorker.register('./service-worker.js?v=2.3')
+        navigator.serviceWorker.register('./service-worker.js?v=2.4')
           .then(reg => {
             // Check for update on every page load
             reg.update();

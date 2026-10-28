@@ -499,7 +499,7 @@ html, body {
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--theme-border);
   border-radius: var(--radius-xl);
-  padding: 28px 24px 22px;
+  padding: 16px 20px 14px;
   box-shadow: var(--shadow-lg);
   text-align: center;
   position: relative;
@@ -519,10 +519,10 @@ html, body {
 
 .ticket-room-code {
   font-family: var(--font-mono);
-  font-size: 3.2rem;
+  font-size: 2.4rem;
   font-weight: 800;
   letter-spacing: 0.2em;
-  margin: 12px 0 16px;
+  margin: 6px 0 10px;
   background: var(--theme-gradient-primary);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -550,25 +550,80 @@ html, body {
   border-color: var(--theme-accent-cyan);
 }
 
-/* Player Roster Cards */
+/* Host Rules Config Card: Scrollable & responsive */
+#lobby-host-config-card {
+  max-height: 250px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+#lobby-host-config-card::-webkit-scrollbar,
+.scrollable-player-list::-webkit-scrollbar,
+#waiting-player-list::-webkit-scrollbar {
+  width: 5px;
+}
+#lobby-host-config-card::-webkit-scrollbar-track,
+.scrollable-player-list::-webkit-scrollbar-track,
+#waiting-player-list::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+}
+#lobby-host-config-card::-webkit-scrollbar-thumb,
+.scrollable-player-list::-webkit-scrollbar-thumb,
+#waiting-player-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+}
+
+/* Player Roster Container & Scrollable List */
 .roster-container {
   flex: 1;
   max-width: 440px;
   width: 100%;
   margin: 0 auto;
-  padding: 16px 4px;
+  padding: 8px 4px 16px;
+}
+
+.roster-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.roster-count-badge {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--theme-border);
+  color: var(--theme-text-secondary);
+}
+
+.scrollable-player-list, #waiting-player-list {
+  max-height: 190px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-right: 4px;
 }
 
 .player-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px;
+  padding: 8px 12px;
   background: var(--theme-surface-glass);
   backdrop-filter: var(--glass-blur);
   border: 1px solid var(--theme-border);
-  border-radius: var(--radius-lg);
-  margin-bottom: 10px;
+  border-radius: var(--radius-md);
+  margin-bottom: 0;
   box-shadow: var(--shadow-sm);
   transition: transform 0.2s ease;
 }
@@ -576,14 +631,14 @@ html, body {
 .player-info {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .player-role-badge {
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   font-weight: 800;
   letter-spacing: 0.08em;
-  padding: 4px 10px;
+  padding: 3px 8px;
   border-radius: var(--radius-full);
   text-transform: uppercase;
 }
@@ -601,15 +656,15 @@ html, body {
 }
 
 .player-name {
-  font-size: 0.92rem;
+  font-size: 0.86rem;
   font-weight: 700;
 }
 
 .host-badge {
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   font-weight: 800;
   letter-spacing: 0.08em;
-  padding: 3px 8px;
+  padding: 2px 6px;
   background: rgba(251, 191, 36, 0.15);
   color: var(--theme-warning);
   border: 1px solid rgba(251, 191, 36, 0.3);
@@ -619,15 +674,15 @@ html, body {
 .player-card-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .btn-role-toggle {
   font-family: inherit;
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   font-weight: 800;
   letter-spacing: 0.05em;
-  padding: 5px 10px;
+  padding: 4px 8px;
   border-radius: var(--radius-full);
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid var(--theme-border);
@@ -951,6 +1006,50 @@ body.theme-camo .leaflet-tile {
   background: var(--theme-gradient-primary);
   width: 100%;
   transition: width 1s linear;
+}
+
+/* Out of Bounds Alert Banner */
+.hud-oob-banner {
+  background: rgba(220, 38, 38, 0.94);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid rgba(239, 68, 68, 0.9);
+  border-radius: var(--radius-lg);
+  padding: 10px 16px;
+  pointer-events: auto;
+  box-shadow: 0 0 24px rgba(239, 68, 68, 0.6);
+  animation: pulse-oob 1s infinite alternate ease-in-out;
+  color: #ffffff;
+  margin-top: 8px;
+}
+
+@keyframes pulse-oob {
+  0% { transform: scale(0.99); box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+  100% { transform: scale(1.01); box-shadow: 0 0 26px rgba(239, 68, 68, 0.85); }
+}
+
+.oob-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.84rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+}
+
+.oob-desc {
+  font-size: 0.72rem;
+  margin-top: 3px;
+  opacity: 0.95;
+  font-weight: 600;
+}
+
+/* Cooldown state for action buttons */
+.btn-cooldown {
+  opacity: 0.55 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  filter: grayscale(0.5);
 }
 
 /* Grace Period Banner */

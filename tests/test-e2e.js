@@ -100,10 +100,13 @@ async function runE2ETests() {
     console.log(`    ✅ Active Squad Roster populated with ${playerCount} players`);
 
     // 6. Host launches match
-    console.log('[6] Launching match as Host...');
+    console.log('[6] Launching match as Host (confirming boundary prompt)...');
     const startMatchBtn = page.locator('#btn-start-match');
     await startMatchBtn.waitFor({ state: 'visible', timeout: 3000 });
     await startMatchBtn.click();
+    const boundaryConfirmBtn = page.locator('#btn-confirm-start-match');
+    await boundaryConfirmBtn.waitFor({ state: 'visible', timeout: 3000 });
+    await boundaryConfirmBtn.click();
 
     // 7. Verify HUD & Tactical Map
     console.log('[7] Verifying Tactical HUD & Cartography...');

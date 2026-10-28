@@ -195,6 +195,8 @@ class NetworkEngine {
       hostName: this.nickname,
       state: Game ? Game.state : 'WAITING',
       matchStartTimestamp: Game ? Game.matchStartTimestamp : 0,
+      boundaryCenter: Game ? Game.boundaryCenter : null,
+      boundaryRadiusMeters: typeof Config !== 'undefined' ? Config.settings.boundaryRadiusMeters : 1500,
       settings: typeof Config !== 'undefined' ? Config.settings : {},
       peers: Array.from(this.peers.values())
     });

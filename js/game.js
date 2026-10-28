@@ -38,6 +38,12 @@ class ManhuntGame {
     this.nearestOpponentDistance = null;
     this.nearestOpponentBearing = null;
     this.nearestOpponentName = '';
+
+    // Global Fixed Boundary & Flare State
+    this.boundaryCenter = null; // { lat, lng } fixed globally at match launch by Host
+    this.boundaryRadiusMeters = 1500;
+    this.isOutOfBounds = false;
+    this.lastFlareTimestamp = 0;
   }
 
   init() {
@@ -203,7 +209,7 @@ class ManhuntGame {
     if (data.targetPlayerId === Network.playerId) {
       this.role = data.newRole;
       Network.role = data.newRole;
-      UI.showToast(`👑 Host assigned you to ${data.newRole.toUpperCase()}!`, 'warning');
+      UI.notifyCriticalEvent('ROLE ASSIGNED', `👑 Host assigned you to ${data.newRole.toUpperCase()}!`, 'warning');
       UI.playAudioCue('ping');
       this.updatePlayerRoster();
       if (this.state === 'ACTIVE' || this.state === 'GRACE_PERIOD') {
@@ -233,6 +239,14 @@ class ManhuntGame {
       UI.updateLobbyRulesDisplay(Config.settings);
     }
 
+    if (data.boundaryCenter) {
+      this.boundaryCenter = data.boundaryCenter;
+    }
+    if (data.boundaryRadiusMeters !== undefined) {
+      this.boundaryRadiusMeters = data.boundaryRadiusMeters;
+      Config.settings.boundaryRadiusMeters = data.boundaryRadiusMeters;
+    }
+
     if (this.state === 'WAITING' && data.peers && Array.isArray(data.peers)) {
       data.peers.forEach(p => {
         if (p.id !== Network.playerId) {
@@ -250,7 +264,8 @@ class ManhuntGame {
         gracePeriod: data.settings ? data.settings.gracePeriod : Config.settings.gracePeriod,
         gameDuration: data.settings ? data.settings.gameDuration : Config.settings.gameDuration,
         runnerPingInterval: data.settings ? data.settings.runnerPingInterval : Config.settings.runnerPingInterval,
-        boundaryRadiusMeters: data.settings ? data.settings.boundaryRadiusMeters : Config.settings.boundaryRadiusMeters,
+        boundaryRadiusMeters: data.boundaryRadiusMeters !== undefined ? data.boundaryRadiusMeters : (data.settings ? data.settings.boundaryRadiusMeters : Config.settings.boundaryRadiusMeters),
+        boundaryCenter: data.boundaryCenter || null,
         runnerCaptureMode: data.settings ? data.settings.runnerCaptureMode : Config.settings.runnerCaptureMode,
         tagDistanceMeters: data.settings ? data.settings.tagDistanceMeters : Config.settings.tagDistanceMeters,
         startTimestamp: data.matchStartTimestamp || Date.now()
@@ -285,17 +300,35 @@ class ManhuntGame {
   }
 
   /**
-   * Host starts the match
+   * Host starts the match (prompts host to establish fixed boundary radius)
    */
   startMatch() {
     if (!this.isHost) return;
+    UI.showBoundaryPromptModal();
+  }
+
+  /**
+   * Host confirms boundary settings and officially launches the operation
+   */
+  confirmAndLaunchMatch(boundaryRadius) {
+    if (!this.isHost) return;
+
+    // Fixed boundary center locked to Host's current coordinates
+    const anchor = this.lastSelfCoords
+      ? { lat: this.lastSelfCoords.lat, lng: this.lastSelfCoords.lng }
+      : { lat: 40.7580, lng: -73.9855 }; // fallback default anchor
+
+    this.boundaryCenter = anchor;
+    this.boundaryRadiusMeters = boundaryRadius !== undefined ? boundaryRadius : Config.settings.boundaryRadiusMeters;
+    Config.settings.boundaryRadiusMeters = this.boundaryRadiusMeters;
 
     const matchConfig = {
       seekerTrackingMode: Config.settings.seekerTrackingMode,
       gracePeriod: Config.settings.gracePeriod,
       gameDuration: Config.settings.gameDuration,
       runnerPingInterval: Config.settings.runnerPingInterval,
-      boundaryRadiusMeters: Config.settings.boundaryRadiusMeters,
+      boundaryRadiusMeters: this.boundaryRadiusMeters,
+      boundaryCenter: this.boundaryCenter,
       runnerCaptureMode: Config.settings.runnerCaptureMode,
       tagDistanceMeters: Config.settings.tagDistanceMeters,
       requireTagConfirmation: Config.settings.requireTagConfirmation,
@@ -311,7 +344,13 @@ class ManhuntGame {
     if (data.gracePeriod !== undefined) Config.settings.gracePeriod = data.gracePeriod;
     if (data.gameDuration !== undefined) Config.settings.gameDuration = data.gameDuration;
     if (data.runnerPingInterval !== undefined) Config.settings.runnerPingInterval = data.runnerPingInterval;
-    if (data.boundaryRadiusMeters !== undefined) Config.settings.boundaryRadiusMeters = data.boundaryRadiusMeters;
+    if (data.boundaryRadiusMeters !== undefined) {
+      this.boundaryRadiusMeters = data.boundaryRadiusMeters;
+      Config.settings.boundaryRadiusMeters = data.boundaryRadiusMeters;
+    }
+    if (data.boundaryCenter) {
+      this.boundaryCenter = data.boundaryCenter;
+    }
     if (data.runnerCaptureMode) Config.settings.runnerCaptureMode = data.runnerCaptureMode;
     if (data.tagDistanceMeters !== undefined) Config.settings.tagDistanceMeters = data.tagDistanceMeters;
     if (data.requireTagConfirmation !== undefined) Config.settings.requireTagConfirmation = data.requireTagConfirmation;
@@ -323,6 +362,7 @@ class ManhuntGame {
     this.seekerPingCountdown = Config.settings.seekerTrackingMode === 'live' ? 0 : parseInt(Config.settings.seekerTrackingMode, 10);
     this.isTagged = false;
     this.isPaused = false;
+    this.isOutOfBounds = false;
     this.taggedRunners.clear();
 
     // Populate active lists
@@ -336,15 +376,18 @@ class ManhuntGame {
       else if (peer.role === 'seeker') this.activeSeekers.add(id);
     }
 
-    // Initialize tactical map
+    // Initialize tactical map with center
+    const mapCenterLat = this.lastSelfCoords ? this.lastSelfCoords.lat : (this.boundaryCenter ? this.boundaryCenter.lat : 40.7580);
+    const mapCenterLng = this.lastSelfCoords ? this.lastSelfCoords.lng : (this.boundaryCenter ? this.boundaryCenter.lng : -73.9855);
+    MapController.init(mapCenterLat, mapCenterLng);
+
     if (this.lastSelfCoords) {
-      MapController.init(this.lastSelfCoords.lat, this.lastSelfCoords.lng);
       MapController.updateSelfLocation(this.lastSelfCoords.lat, this.lastSelfCoords.lng, this.role);
-      if (Config.settings.boundaryRadiusMeters > 0) {
-        MapController.setBoundary(this.lastSelfCoords.lat, this.lastSelfCoords.lng, Config.settings.boundaryRadiusMeters);
-      }
-    } else {
-      MapController.init();
+    }
+
+    // Apply globally fixed boundary circle for all players (runners and seekers)
+    if (this.boundaryCenter && this.boundaryRadiusMeters > 0) {
+      MapController.setBoundary(this.boundaryCenter.lat, this.boundaryCenter.lng, this.boundaryRadiusMeters);
     }
 
     UI.showScreen('screen-hud');
@@ -361,7 +404,7 @@ class ManhuntGame {
       this.state = 'GRACE_PERIOD';
       UI.setGracePeriodState(true, this.gracePeriodRemaining, this.role);
       UI.playAudioCue('siren');
-      UI.showToast(`Grace Period Active! Runners have ${Math.round(this.gracePeriodRemaining / 60)}m head start!`, 'info');
+      UI.notifyCriticalEvent('GRACE PERIOD ACTIVE', `Runners have ${Math.round(this.gracePeriodRemaining / 60)}m head start!`, 'info');
     } else {
       this.beginActiveHunt();
     }
@@ -373,11 +416,11 @@ class ManhuntGame {
     this.state = 'ACTIVE';
     UI.setGracePeriodState(false);
     UI.playAudioCue('start');
-    UI.showToast('THE HUNT HAS BEGUN! Seekers are released!', 'danger');
+    UI.notifyCriticalEvent('THE HUNT HAS BEGUN!', 'Seekers are released! Evade pursuit!', 'danger');
 
     // Trigger initial runner ping immediately at game start
     if (this.role === 'runner' && this.lastSelfCoords) {
-      this.broadcastRunnerPing(this.lastSelfCoords);
+      this.broadcastRunnerPing(this.lastSelfCoords, false);
     }
   }
 
@@ -456,7 +499,6 @@ class ManhuntGame {
             timestamp: Date.now()
           });
           UI.playAudioCue('ping');
-          UI.showToast('📍 Seeker periodic ping broadcasted!', 'warning');
         }
       }
     }
@@ -468,25 +510,76 @@ class ManhuntGame {
   /**
    * Broadcast a Runner ping snapshot to all players
    */
-  broadcastRunnerPing(coords) {
+  broadcastRunnerPing(coords, isManualFlare = false) {
     this.lastRunnerPingTime = Date.now();
     Network.broadcast('telemetry', {
       lat: coords.lat,
       lng: coords.lng,
       role: 'runner',
       isPingSnapshot: true,
+      isManualFlare: isManualFlare,
       nickname: this.nickname,
       timestamp: Date.now()
     });
 
     UI.playAudioCue('ping');
     UI.triggerPingPulseAnimation();
-    UI.showToast('📍 Runner location ping broadcasted!', 'warning');
+    if (isManualFlare) {
+      UI.showToast('📍 Tactical flare fired! Position revealed to Seekers.', 'warning');
+    }
+  }
+
+  /**
+   * Runner manual flare with cooldown
+   */
+  triggerFlare() {
+    if (this.role !== 'runner') return;
+    if (this.isTagged) return;
+    if (!this.lastSelfCoords) {
+      UI.showToast('Acquiring GPS fix before firing flare...', 'warning');
+      return;
+    }
+
+    const cooldownSec = Config.settings.flareCooldownSeconds || 60;
+    const cooldownMs = cooldownSec * 1000;
+    const now = Date.now();
+    const elapsed = now - this.lastFlareTimestamp;
+
+    if (elapsed < cooldownMs) {
+      const remaining = Math.ceil((cooldownMs - elapsed) / 1000);
+      UI.showToast(`Flare recharging: ${remaining}s remaining`, 'warning');
+      return;
+    }
+
+    this.lastFlareTimestamp = now;
+    this.broadcastRunnerPing(this.lastSelfCoords, true);
+    UI.startFlareCooldown(cooldownSec);
   }
 
   processLocationTick(coords) {
     this.lastSelfCoords = coords;
     if (this.isPaused) return;
+
+    // Out of Bounds Detection against Host's fixed global boundaryCenter
+    if (this.boundaryCenter && this.boundaryRadiusMeters > 0 && (this.state === 'ACTIVE' || this.state === 'GRACE_PERIOD')) {
+      const distFromCenter = GeoEngine.getDistance(coords.lat, coords.lng, this.boundaryCenter.lat, this.boundaryCenter.lng);
+      if (distFromCenter > this.boundaryRadiusMeters) {
+        const metersOOB = Math.round(distFromCenter - this.boundaryRadiusMeters);
+        UI.setOutOfBoundsState(true, metersOOB);
+        if (!this.isOutOfBounds) {
+          this.isOutOfBounds = true;
+          UI.notifyCriticalEvent('OUT OF BOUNDS!', `⚠️ OUT OF BOUNDS! You left the operation area (${metersOOB}m out). Return immediately!`, 'danger');
+          UI.playAudioCue('siren');
+          UI.vibrate([200, 100, 200, 100, 400]);
+        }
+      } else {
+        if (this.isOutOfBounds) {
+          this.isOutOfBounds = false;
+          UI.showToast('✅ Back inside operation boundary', 'info');
+        }
+        UI.setOutOfBoundsState(false, 0);
+      }
+    }
 
     if (this.role === 'seeker' && this.state === 'ACTIVE' && Config.settings.seekerTrackingMode === 'live') {
       const now = Date.now();
@@ -525,7 +618,9 @@ class ManhuntGame {
         MapController.updatePeerLocation(playerId, lat, lng, 'runner', nickname || 'Runner', true);
         if (isPingSnapshot || isReconSweep) {
           UI.playAudioCue('radar-blip');
-          UI.showToast(`🚨 Runner ping revealed: ${nickname || 'Runner'}!`, 'info');
+          if (data.isManualFlare) {
+            UI.showToast(`📍 Tactical Flare fired by ${nickname || 'Runner'}!`, 'warning');
+          }
         }
       }
     }
@@ -537,8 +632,6 @@ class ManhuntGame {
     this.lockedTargetId = targetId;
     if (targetId) {
       UI.showToast(`🎯 Locked onto: ${targetNickname || 'Target'}`, 'info');
-    } else {
-      UI.showToast('🎯 Radar tracking closest runner (Auto)', 'info');
     }
 
     for (const [id, pos] of this.lastKnownPositions.entries()) {
@@ -565,15 +658,15 @@ class ManhuntGame {
       this.isPaused = true;
       UI.setPauseState(true, this.isHost);
       UI.playAudioCue('warning');
-      UI.showToast('⏸️ Operation suspended by Host', 'warning');
+      UI.notifyCriticalEvent('OPERATION SUSPENDED', '⏸️ Operation suspended by Host', 'warning');
     } else if (cmd === 'resume') {
       this.isPaused = false;
       UI.setPauseState(false, this.isHost);
       UI.playAudioCue('start');
-      UI.showToast('▶️ Operation resumed by Host', 'info');
+      UI.notifyCriticalEvent('OPERATION RESUMED', '▶️ Operation resumed by Host', 'info');
     } else if (cmd === 'recon_sweep') {
       UI.playAudioCue('siren');
-      UI.showToast('🛰️ Satellite recon sweep active! All coordinates revealed!', 'danger');
+      UI.notifyCriticalEvent('SATELLITE RECON SWEEP', '🛰️ Satellite recon sweep active! All coordinates revealed!', 'danger');
       if (this.lastSelfCoords) {
         Network.broadcast('telemetry', {
           lat: this.lastSelfCoords.lat,
@@ -590,7 +683,7 @@ class ManhuntGame {
       this.isPaused = false;
       UI.setPauseState(false, this.isHost);
       this.leaveMatch();
-      UI.showToast(`🛑 Operation terminated by Host: ${data && data.reason ? data.reason : 'Host aborted match'}`, 'danger');
+      UI.notifyCriticalEvent('OPERATION TERMINATED', `🛑 Operation terminated by Host: ${data && data.reason ? data.reason : 'Host aborted match'}`, 'danger');
       UI.playAudioCue('tag');
     }
   }
@@ -713,6 +806,7 @@ class ManhuntGame {
 
     this.pendingTagRequest = data;
     if (Config.settings.requireTagConfirmation) {
+      UI.notifyCriticalEvent('TAG VERIFICATION REQUIRED', `🚨 Seeker ${data.seekerName} claims to have tagged you! Confirm on phone.`, 'danger');
       UI.showRunnerTagConfirmModal(data.seekerName, data.tagDistance);
     } else {
       // Automatic confirmation
@@ -751,7 +845,7 @@ class ManhuntGame {
 
   handleTagDisputed(data) {
     if (data.seekerId === Network.playerId) {
-      UI.showToast(`❌ ${data.runnerName} disputed your tag!`, 'danger');
+      UI.notifyCriticalEvent('TAG DISPUTED', `❌ ${data.runnerName} disputed your tag!`, 'danger');
       UI.playAudioCue('warning');
     } else {
       UI.showToast(`⚠️ Tag dispute: ${data.runnerName} rejected tag by ${data.seekerName}`, 'warning');
@@ -773,7 +867,7 @@ class ManhuntGame {
     };
     Network.broadcast('tag_confirmed', tagData, true);
     this.onRemoteTagConfirmed(tagData);
-    UI.showToast(`👑 Host confirmed tag on ${runnerNickname}`, 'info');
+    UI.notifyCriticalEvent('HOST FORCE TAG', `👑 Host confirmed tag on ${runnerNickname}`, 'info');
     this.populateHostControlsModal();
   }
 
@@ -785,7 +879,6 @@ class ManhuntGame {
     this.taggedRunners.add(runnerId);
 
     UI.playAudioCue('tag');
-    UI.showToast(`🎯 ${runnerName} was tagged by ${seekerName}!`, 'danger');
 
     const isSelf = runnerId === Network.playerId;
     const isInfection = Config.settings.runnerCaptureMode === 'infection';
@@ -797,7 +890,7 @@ class ManhuntGame {
         Network.role = 'seeker';
         UI.adaptHUDForRole('seeker');
         UI.playAudioCue('siren');
-        UI.showToast('🧬 INFECTION! You are now a SEEKER! Hunt surviving runners!', 'danger');
+        UI.notifyCriticalEvent('INFECTION - CONVERTED TO SEEKER', '🧬 YOU WERE CAUGHT! You are now a SEEKER! Hunt surviving runners!', 'danger');
         if (this.lastSelfCoords) {
           MapController.updateSelfLocation(this.lastSelfCoords.lat, this.lastSelfCoords.lng, 'seeker');
           Network.broadcast('telemetry', {
@@ -813,9 +906,12 @@ class ManhuntGame {
       } else {
         // Elimination Mode
         this.isTagged = true;
+        UI.notifyCriticalEvent('YOU WERE ELIMINATED', `🎯 Tagged by ${seekerName}! You are now a spectator.`, 'danger');
         UI.showCapturedModal();
       }
     } else {
+      // Critical match event alert broadcast to squad
+      UI.notifyCriticalEvent('RUNNER CAUGHT!', `🎯 ${runnerName} was tagged by ${seekerName}!`, 'danger');
       if (isInfection) {
         const peer = Network.peers.get(runnerId);
         if (peer) peer.role = 'seeker';
@@ -901,6 +997,12 @@ class ManhuntGame {
       message = 'Time expired! Surviving runners successfully evaded pursuit!';
       UI.playAudioCue('victory');
     }
+
+    UI.notifyCriticalEvent(
+      'OPERATION CONCLUDED',
+      `🏆 VICTORY: ${winner} won! ${message}`,
+      'info'
+    );
 
     UI.showGameOverScreen({
       winner,

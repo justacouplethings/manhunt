@@ -302,10 +302,88 @@ class UIManager {
     }, 3200);
   }
 
+  /**
+   * Dispatch notification for critical match state changes
+   * (runner caught, infection, role assigned, out-of-bounds, match launch)
+   */
+  notifyCriticalEvent(title, message, toastType = 'danger') {
+    this.showToast(message, toastType);
+    if (window.AndroidNative && typeof window.AndroidNative.showNotification === 'function') {
+      try {
+        window.AndroidNative.showNotification(title, message);
+      } catch (e) {
+        console.warn('AndroidNative notification error:', e);
+      }
+    } else if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+      try {
+        new Notification(title, { body: message, icon: './assets/icon-192.png' });
+      } catch (e) {}
+    }
+  }
+
+  showBoundaryPromptModal() {
+    const promptRadius = document.getElementById('prompt-boundary-radius');
+    if (promptRadius) {
+      promptRadius.value = (Config.settings.boundaryRadiusMeters || 1500).toString();
+    }
+    const coordsEl = document.getElementById('boundary-anchor-coords');
+    if (coordsEl) {
+      if (Game.lastSelfCoords) {
+        coordsEl.textContent = `📍 Anchor Center: ${Game.lastSelfCoords.lat.toFixed(5)}, ${Game.lastSelfCoords.lng.toFixed(5)} (Your GPS)`;
+      } else {
+        coordsEl.textContent = '📍 Anchor Center: Acquiring GPS fix...';
+      }
+    }
+    this.showModal('modal-boundary-confirm');
+  }
+
+  setOutOfBoundsState(isOOB, metersOut = 0) {
+    const banner = document.getElementById('hud-oob-banner');
+    const distEl = document.getElementById('hud-oob-distance');
+    if (!banner) return;
+    if (isOOB) {
+      banner.style.display = 'block';
+      if (distEl) distEl.textContent = `${metersOut}m OUT`;
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
+  startFlareCooldown(seconds) {
+    const btn = document.getElementById('btn-panic-ping');
+    if (!btn) return;
+    btn.classList.add('btn-cooldown');
+    btn.disabled = true;
+    let remaining = seconds;
+    btn.innerHTML = `<span>⏳</span> ${remaining}s`;
+
+    if (this.flareInterval) clearInterval(this.flareInterval);
+    this.flareInterval = setInterval(() => {
+      remaining--;
+      if (remaining <= 0) {
+        clearInterval(this.flareInterval);
+        this.flareInterval = null;
+        btn.classList.remove('btn-cooldown');
+        btn.disabled = false;
+        btn.innerHTML = `<span>📍</span> Flare`;
+      } else {
+        btn.innerHTML = `<span>⏳</span> ${remaining}s`;
+      }
+    }, 1000);
+  }
+
   renderLobbyRoster(players, isHost) {
     const container = document.getElementById('waiting-player-list');
     if (!container) return;
     container.innerHTML = '';
+
+    const countBadge = document.getElementById('roster-count-badge');
+    if (countBadge) {
+      const total = players.length;
+      const runners = players.filter(p => p.role === 'runner').length;
+      const seekers = players.filter(p => p.role === 'seeker').length;
+      countBadge.textContent = `${total} SQUAD (${runners}R / ${seekers}S)`;
+    }
 
     players.forEach(p => {
       const isSelf = p.id === Network.playerId;
@@ -772,6 +850,22 @@ class UIManager {
       };
     }
 
+    // Modal Boundary Confirm / Host Launch Prompts
+    const cancelBoundaryBtn = document.getElementById('btn-cancel-boundary-confirm');
+    if (cancelBoundaryBtn) {
+      cancelBoundaryBtn.onclick = () => this.closeModal('modal-boundary-confirm');
+    }
+
+    const confirmStartMatchBtn = document.getElementById('btn-confirm-start-match');
+    if (confirmStartMatchBtn) {
+      confirmStartMatchBtn.onclick = () => {
+        const radiusSel = document.getElementById('prompt-boundary-radius');
+        const radius = radiusSel ? parseInt(radiusSel.value, 10) : Config.settings.boundaryRadiusMeters;
+        this.closeModal('modal-boundary-confirm');
+        Game.confirmAndLaunchMatch(radius);
+      };
+    }
+
     // Copy Room Code / Share
     const copyBtn = document.getElementById('btn-copy-room');
     if (copyBtn) {
@@ -895,9 +989,7 @@ class UIManager {
     const panicPingBtn = document.getElementById('btn-panic-ping');
     if (panicPingBtn) {
       panicPingBtn.onclick = () => {
-        if (Game.role === 'runner' && Game.lastSelfCoords) {
-          Game.broadcastRunnerPing(Game.lastSelfCoords);
-        }
+        Game.triggerFlare();
       };
     }
 
