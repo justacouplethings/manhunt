@@ -1090,13 +1090,17 @@ class UIManager {
     // In-Game Tactical HUD Settings Button & Overlay Modal
     const openSettingsHudBtn = document.getElementById('btn-open-settings-hud');
     if (openSettingsHudBtn) {
-      openSettingsHudBtn.onclick = (e) => {
+      const handleOpenSettings = (e) => {
         if (e) {
           e.preventDefault();
           e.stopPropagation();
         }
         this.openIngameSettings();
       };
+      openSettingsHudBtn.onclick = handleOpenSettings;
+      openSettingsHudBtn.addEventListener('touchend', (e) => {
+        handleOpenSettings(e);
+      }, { passive: false });
     }
 
     const closeIngameSettingsBtn = document.getElementById('btn-close-ingame-settings');
@@ -1134,32 +1138,16 @@ class UIManager {
       };
     }
 
-    // Save Settings
+    // Save Settings (Themes & Sensory Config)
     const saveSettingsBtn = document.getElementById('btn-save-settings');
     if (saveSettingsBtn) {
       saveSettingsBtn.onclick = () => {
-        const pingInterval = parseInt(document.getElementById('setting-ping-interval').value, 10);
-        const grace = parseInt(document.getElementById('setting-grace-period').value, 10);
-        const duration = parseInt(document.getElementById('setting-game-duration').value, 10);
-        const tagDist = parseInt(document.getElementById('setting-tag-distance').value, 10);
-        const captureMode = document.getElementById('setting-capture-mode').value;
-        const tagConfirm = document.getElementById('setting-tag-confirm').value === 'true';
-        const proxDist = parseInt(document.getElementById('setting-proximity-distance').value, 10);
-        const boundary = parseInt(document.getElementById('setting-boundary').value, 10);
-        const sound = document.getElementById('setting-sound').checked;
-        const vib = document.getElementById('setting-vibration').checked;
+        const soundEl = document.getElementById('setting-sound');
+        const vibEl = document.getElementById('setting-vibration');
 
         const newSettings = {
-          runnerPingInterval: pingInterval,
-          gracePeriod: grace,
-          gameDuration: duration,
-          tagDistanceMeters: tagDist,
-          runnerCaptureMode: captureMode,
-          requireTagConfirmation: tagConfirm,
-          proximityAlertMeters: proxDist,
-          boundaryRadiusMeters: boundary,
-          soundEnabled: sound,
-          vibrationEnabled: vib
+          soundEnabled: soundEl ? soundEl.checked : Config.settings.soundEnabled,
+          vibrationEnabled: vibEl ? vibEl.checked : Config.settings.vibrationEnabled
         };
 
         Config.save(newSettings);
@@ -1170,7 +1158,7 @@ class UIManager {
         }
 
         this.showToast('Settings saved successfully', 'info');
-        this.showScreen(Game.state === 'ACTIVE' ? 'screen-hud' : (Game.state === 'WAITING' ? 'screen-waiting' : 'screen-lobby'));
+        this.showScreen(Game.state === 'ACTIVE' || Game.state === 'GRACE_PERIOD' ? 'screen-hud' : (Game.state === 'WAITING' ? 'screen-waiting' : 'screen-lobby'));
       };
     }
 

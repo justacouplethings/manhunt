@@ -456,11 +456,107 @@ html, body {
   transform: translateY(1px);
 }
 
-.lobby-footer {
-  display: flex;
-  justify-content: space-between;
+.btn-warning {
+  width: 100%;
+  padding: 14px 20px;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: #07090e;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  border-radius: var(--radius-md);
+  font-family: var(--font-family);
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.3);
+  display: inline-flex;
   align-items: center;
-  padding: 8px 4px 4px;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.btn-warning:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.btn-warning:active {
+  filter: brightness(0.95);
+  transform: translateY(1px);
+}
+
+.lobby-footer {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding: 10px 4px 6px;
+  width: 100%;
+}
+
+.footer-nav-btn {
+  background: var(--theme-surface-subtle);
+  border: 1px solid var(--theme-border);
+  border-radius: var(--radius-md);
+  color: var(--theme-text-secondary);
+  font-family: var(--font-family);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 12px;
+  text-decoration: none;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  min-height: 44px;
+  box-shadow: var(--shadow-sm);
+}
+
+.footer-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--theme-text-primary);
+  transform: translateY(-1px);
+}
+
+.footer-nav-btn:active {
+  transform: translateY(1px);
+}
+
+.footer-btn-icon {
+  font-size: 1.05rem;
+  flex-shrink: 0;
+}
+
+.footer-btn-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.footer-btn-admin {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.footer-btn-admin:hover {
+  opacity: 1;
+  border-color: var(--theme-accent, #ff4757);
+  color: var(--theme-text-primary);
+}
+
+@media (max-width: 340px) {
+  .lobby-footer {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
 }
 
 .text-btn {
@@ -485,7 +581,37 @@ html, body {
 }
 
 /* --------------------------------------------------------------------------
-   WAITING ROOM: DIGITAL SECURE TICKET READOUT
+   WAITING ROOM: DIGITAL SECURE TICKET READOUT & SMOOTH SCROLLING VIEW
+   -------------------------------------------------------------------------- */
+#screen-waiting {
+  padding: 0 !important;
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden !important;
+  display: none;
+  flex-direction: column;
+}
+
+#screen-waiting.active {
+  display: flex !important;
+}
+
+.waiting-scroll-view {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: max(env(safe-area-inset-top), 16px) 16px calc(env(safe-area-inset-bottom, 16px) + 24px);
+  max-width: 480px;
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
    -------------------------------------------------------------------------- */
 .ticket-wrapper {
   max-width: 440px;
@@ -604,13 +730,13 @@ html, body {
 }
 
 .scrollable-player-list, #waiting-player-list {
-  max-height: 190px;
+  max-height: 155px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
   padding-right: 4px;
 }
 
@@ -618,29 +744,34 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 6px 10px;
   background: var(--theme-surface-glass);
   backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--theme-border);
   border-radius: var(--radius-md);
   margin-bottom: 0;
   box-shadow: var(--shadow-sm);
   transition: transform 0.2s ease;
+  min-height: 38px;
 }
 
 .player-info {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  flex: 1;
 }
 
 .player-role-badge {
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   font-weight: 800;
   letter-spacing: 0.08em;
-  padding: 3px 8px;
+  padding: 2px 7px;
   border-radius: var(--radius-full);
   text-transform: uppercase;
+  flex-shrink: 0;
 }
 
 .role-runner .player-role-badge {
@@ -656,8 +787,11 @@ html, body {
 }
 
 .player-name {
-  font-size: 0.86rem;
+  font-size: 0.82rem;
   font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .host-badge {
@@ -938,11 +1072,12 @@ html, body {
 .host-mission-control-modal {
   max-width: 440px;
   width: 92vw;
-  max-height: 85dvh;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  max-height: min(88dvh, 660px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   text-align: left;
-  padding: 18px 20px;
+  padding: 18px 18px 16px;
   border: 1px solid rgba(251, 191, 36, 0.35);
   box-shadow: 0 0 32px rgba(251, 191, 36, 0.2);
 }
@@ -952,39 +1087,53 @@ html, body {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.host-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .host-status-strip {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-bottom: 14px;
+  gap: 6px;
+  margin-bottom: 4px;
 }
 
 .host-stat-box {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--theme-border);
   border-radius: var(--radius-md);
-  padding: 6px 8px;
+  padding: 6px 4px;
   text-align: center;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
 .host-stat-label {
-  font-size: 0.62rem;
+  font-size: 0.6rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   color: var(--theme-text-secondary);
   text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .host-stat-val {
   font-family: var(--font-mono);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   font-weight: 900;
   color: var(--theme-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .host-stat-val.val-green {
   color: var(--theme-runner);
@@ -1155,40 +1304,43 @@ body.theme-camo .leaflet-tile {
   box-shadow: 0 0 16px -4px rgba(0, 212, 255, 0.3);
 }
 
-/* Runner Ping Glass Banner */
+/* Runner Ping Glass Banner (Compact Floating Capsule) */
 .hud-ping-banner {
-  background: var(--theme-surface-glass);
+  background: var(--theme-surface-glass-elevated);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--theme-border);
-  border-radius: var(--radius-lg);
-  padding: 10px 16px;
+  border-radius: var(--radius-full);
+  padding: 5px 14px 6px;
   pointer-events: auto;
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-sm);
+  max-width: 280px;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .ping-timer-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 800;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--theme-text-secondary);
-  margin-bottom: 6px;
+  margin-bottom: 3px;
 }
 
 .ping-time-val {
   font-family: var(--font-mono);
-  font-size: 0.95rem;
+  font-size: 0.82rem;
   font-weight: 800;
   color: var(--theme-accent-cyan);
 }
 
 .ping-progress-track {
   width: 100%;
-  height: 4px;
+  height: 3px;
   background: rgba(255, 255, 255, 0.08);
   border-radius: 2px;
   overflow: hidden;
@@ -1409,16 +1561,33 @@ body.theme-camo .leaflet-tile {
 }
 
 /* --------------------------------------------------------------------------
-   SETTINGS & THEMES SCREEN
+   SETTINGS & THEMES SCREEN: FIXED FLEX WRAPPER & SMOOTH SCROLLING VIEW
    -------------------------------------------------------------------------- */
+#screen-settings {
+  padding: 0 !important;
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden !important;
+  display: none;
+  flex-direction: column;
+}
+
+#screen-settings.active {
+  display: flex !important;
+}
+
 .settings-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 20px;
+  padding: max(env(safe-area-inset-top, 16px), 16px) 20px 14px;
   background: var(--theme-surface-glass);
   backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--theme-border);
+  flex-shrink: 0;
+  z-index: 10;
 }
 
 .settings-header h2 {
@@ -1427,9 +1596,10 @@ body.theme-camo .leaflet-tile {
   letter-spacing: -0.02em;
 }
 
-.settings-body {
+.settings-body, .scrollable-content-view {
   flex: 1;
-  padding: 20px;
+  min-height: 0;
+  padding: 16px 20px calc(env(safe-area-inset-bottom, 16px) + 28px);
   max-width: 520px;
   margin: 0 auto;
   width: 100%;
@@ -1437,6 +1607,23 @@ body.theme-camo .leaflet-tile {
   flex-direction: column;
   gap: 16px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.settings-body::-webkit-scrollbar,
+.scrollable-content-view::-webkit-scrollbar {
+  width: 5px;
+}
+.settings-body::-webkit-scrollbar-track,
+.scrollable-content-view::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+}
+.settings-body::-webkit-scrollbar-thumb,
+.scrollable-content-view::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
 }
 
 .theme-grid {
@@ -1603,23 +1790,58 @@ input:checked + .slider::before {
   top: 0; left: 0; width: 100%; height: 100%;
   background: rgba(0, 0, 0, 0.8);
   backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   display: none;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  padding: 20px;
+  padding: 16px;
+  overflow: hidden;
+}
+
+/* Semi-translucent tactical glass overlay for in-game settings to keep map visible */
+#modal-ingame-settings {
+  background: rgba(4, 7, 12, 0.52);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .modal-content {
   background: var(--theme-surface-glass-elevated);
   backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--theme-border);
   border-radius: var(--radius-xl);
-  padding: 32px 26px;
-  max-width: 400px;
+  padding: 24px 20px;
+  max-width: 420px;
   width: 100%;
-  text-align: center;
+  max-height: min(90dvh, 660px);
+  display: flex;
+  flex-direction: column;
   box-shadow: var(--shadow-lg);
+  position: relative;
+  overflow: hidden;
+}
+
+.modal-scroll-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+.modal-scroll-body::-webkit-scrollbar {
+  width: 5px;
+}
+.modal-scroll-body::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+}
+.modal-scroll-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
 }
 
 /* Tactical Map Markers */
@@ -1689,12 +1911,13 @@ input:checked + .slider::before {
   pointer-events: none;
 }
 
-/* Floating Map Zoom & Fitting Controls */
+/* Floating Map Zoom & Fitting Controls (Vertically centered on right edge, clear of top and bottom HUDs) */
 .map-floating-controls {
   position: absolute;
-  right: 16px;
-  top: 140px;
-  z-index: 100;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 105;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1702,15 +1925,15 @@ input:checked + .slider::before {
 }
 
 .map-zoom-btn {
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
   border-radius: var(--radius-lg);
   background: var(--theme-surface-glass-elevated);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--theme-border);
   color: var(--theme-text-primary);
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   font-weight: 800;
   cursor: pointer;
   display: flex;
@@ -1728,6 +1951,18 @@ input:checked + .slider::before {
 
 .map-zoom-btn:active {
   transform: scale(0.95);
+}
+
+@media (max-height: 580px) {
+  .map-floating-controls {
+    bottom: calc(env(safe-area-inset-bottom, 16px) + 160px);
+    gap: 5px;
+  }
+  .map-zoom-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 0.95rem;
+  }
 }
 
 /* Operation Paused Overlay */
@@ -2057,34 +2292,47 @@ input:checked + .slider::before {
 .admin-meta-val { color: #cbd5e1; font-weight: 700; }
 
 .admin-card-actions {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
   margin-top: 14px;
   padding-top: 10px;
   border-top: 1px solid #1a2233;
 }
 
 .admin-action-btn {
-  flex: 1;
-  min-width: 75px;
-  font-size: 0.72rem;
+  width: 100%;
+  min-height: 36px;
+  font-size: 0.74rem;
   font-weight: 700;
-  padding: 6px 8px;
+  padding: 8px 10px;
   border-radius: 6px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  white-space: nowrap;
+  gap: 5px;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.25;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+}
+
+.admin-action-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.admin-action-btn:active {
+  transform: translateY(1px);
 }
 
 /* Responsive grid for Bot actions to avoid clipping / overflowing */
 .admin-bot-actions-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid #1a2233;
@@ -2103,45 +2351,85 @@ input:checked + .slider::before {
   border: 1px dashed #243046;
 }
 
-/* Master Map Overlay Controls */
+/* Master Map Overlay Controls (Unified Semi-Transparent Header Panel) */
 .admin-map-overlay-bar {
   position: absolute;
   top: 10px;
-  left: 10px;
-  right: 10px;
+  left: 12px;
+  right: 12px;
   z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(11, 15, 23, 0.9);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.6);
+  pointer-events: auto;
+  box-sizing: border-box;
+}
+
+.admin-map-controls-group {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  pointer-events: auto;
+  flex: 1;
+  min-width: 0;
 }
 
 .admin-map-select {
-  max-width: 200px;
-  background: rgba(11, 15, 23, 0.94) !important;
-  color: #fff !important;
+  height: 34px;
+  max-width: 195px;
+  background: rgba(15, 23, 42, 0.95) !important;
+  color: #f1f5f9 !important;
   border: 1px solid #334155 !important;
-  font-size: 0.78rem !important;
-  padding: 6px 10px !important;
-  border-radius: 8px !important;
+  font-size: 0.76rem !important;
+  padding: 4px 8px !important;
+  border-radius: 6px !important;
   backdrop-filter: blur(8px);
 }
 
 .admin-map-ctrl-btn {
-  background: rgba(15, 23, 42, 0.92);
-  color: #fff;
-  border: 1px solid #334155;
-  border-radius: 8px;
+  height: 34px;
+  background: rgba(30, 41, 59, 0.9);
+  color: #f1f5f9;
+  border: 1px solid #475569;
+  border-radius: 6px;
   padding: 6px 12px;
-  font-size: 0.75rem;
+  font-size: 0.74rem;
   font-weight: 700;
   cursor: pointer;
   backdrop-filter: blur(8px);
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
   transition: all 0.2s ease;
+}
+
+/* High-contrast broadcast announcement input */
+.admin-broadcast-input {
+  background: rgba(30, 41, 59, 0.8) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: #f8fafc !important;
+  font-size: 0.92rem;
+  padding: 12px 16px;
+}
+
+.admin-broadcast-input::placeholder {
+  color: #94a3b8 !important;
+  opacity: 0.9;
+}
+
+.admin-broadcast-input:focus {
+  background: rgba(51, 65, 85, 0.95) !important;
+  border-color: #ff4757 !important;
+  box-shadow: 0 0 0 3px rgba(255, 71, 87, 0.25) !important;
 }
 
 .admin-map-ctrl-btn:hover {

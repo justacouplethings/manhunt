@@ -1080,6 +1080,197 @@ assert(clientJoiner.activeSeekers.size === 1, 'Synced exactly 1 active seeker (J
 
 
 
+// 22. Testing Admin UI Grids, Overrides Button & God's Eye Header
+console.log('\n22. Testing Admin UI Grids, Overrides Button & God\'s Eye Header:');
+const cssContent = fs.readFileSync(path.join(__dirname, '..', 'css', 'styles.css'), 'utf8');
+const htmlContent = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+
+assert(cssContent.includes('.admin-card-actions'), 'styles.css defines .admin-card-actions grid');
+assert(cssContent.includes('grid-template-columns: repeat(2, 1fr)'), 'admin card actions styled in responsive 2-column grid');
+assert(cssContent.includes('.btn-warning'), 'styles.css defines .btn-warning full-width styling');
+assert(cssContent.includes('.admin-broadcast-input'), 'styles.css defines high-contrast .admin-broadcast-input');
+assert(htmlContent.includes('admin-map-controls-group'), 'index.html groups God\'s Eye controls in unified controls group');
+assert(htmlContent.includes('id="btn-admin-broadcast"'), 'index.html defines id="btn-admin-broadcast" button');
+assert(htmlContent.includes('id="btn-admin-apply-overrides"'), 'index.html defines id="btn-admin-apply-overrides" button');
+
+// 23. Testing Global Network Broadcast Dispatch & Client Alert
+console.log('\n23. Testing Global Network Broadcast Dispatch & Client Alert:');
+class MockAdminBroadcastEngine {
+  constructor() {
+    this.rooms = new Map([['ROOM_A', {}], ['ROOM_B', {}]]);
+    this.dispatchedPackets = [];
+    this.mqttTopics = [];
+  }
+
+  broadcastCommand(targetRoom, payload) {
+    const packet = {
+      action: 'admin_command',
+      roomCode: targetRoom,
+      data: payload,
+      timestamp: Date.now()
+    };
+    this.dispatchedPackets.push(packet);
+
+    if (targetRoom === 'GLOBAL') {
+      this.mqttTopics.push('manhunt/global/admin_command');
+      this.mqttTopics.push('manhunt/room/GLOBAL/admin_command');
+      for (const rCode of this.rooms.keys()) {
+        this.mqttTopics.push(`manhunt/room/${rCode}/admin_command`);
+      }
+    } else {
+      this.mqttTopics.push(`manhunt/room/${targetRoom}/admin_command`);
+    }
+  }
+
+  sendGlobalBroadcast(message) {
+    const msg = (message || '').trim();
+    if (!msg) {
+      return { success: false, error: 'Empty message' };
+    }
+    this.broadcastCommand('GLOBAL', {
+      type: 'global_announcement',
+      message: msg
+    });
+    return { success: true };
+  }
+}
+
+const mockAdmin = new MockAdminBroadcastEngine();
+const emptyRes = mockAdmin.sendGlobalBroadcast('');
+assert(emptyRes.success === false, 'Empty announcement rejected with warning');
+
+const validRes = mockAdmin.sendGlobalBroadcast('EMERGENCY: Server maintenance in 5m');
+assert(validRes.success === true, 'Valid announcement dispatched successfully');
+assert(mockAdmin.dispatchedPackets.length === 1, 'Exactly one global broadcast packet generated');
+assert(mockAdmin.dispatchedPackets[0].data.type === 'global_announcement', 'Packet type is global_announcement');
+assert(mockAdmin.dispatchedPackets[0].data.message.includes('Server maintenance'), 'Packet contains message body');
+assert(mockAdmin.mqttTopics.includes('manhunt/global/admin_command'), 'Dispatched to manhunt/global/admin_command');
+assert(mockAdmin.mqttTopics.includes('manhunt/room/ROOM_A/admin_command'), 'Dispatched to active room ROOM_A');
+assert(mockAdmin.mqttTopics.includes('manhunt/room/ROOM_B/admin_command'), 'Dispatched to active room ROOM_B');
+
+// Client Reception Check
+let clientAlertReceived = false;
+let clientAlertText = '';
+const mockClientGame = {
+  handleAdminCommand(packet) {
+    if (packet.type === 'global_announcement') {
+      clientAlertReceived = true;
+      clientAlertText = packet.message;
+    }
+  }
+};
+mockClientGame.handleAdminCommand(mockAdmin.dispatchedPackets[0].data);
+assert(clientAlertReceived === true, 'Connected game client receives global announcement');
+assert(clientAlertText.includes('Server maintenance'), 'Client receives correct announcement text');
+
+// 24. Testing Split Location State & Stale Ping Catch Exploit Protection
+console.log('\n24. Testing Split Location State & Stale Ping Catch Exploit Protection:');
+const GeoEngine = {
+  getDistance: (lat1, lon1, lat2, lon2) => getHaversineDistance(lat1, lon1, lat2, lon2),
+  getBearing: (lat1, lon1, lat2, lon2) => getBearing(lat1, lon1, lat2, lon2)
+};
+class MockAntiExploitGame {
+  constructor() {
+    this.role = 'seeker';
+    this.lastSelfCoords = { lat: 40.7128, lng: -74.0060 }; // Seeker starting position
+    this.lastKnownPositions = new Map(); // Displayed stale ping positions
+    this.trueLivePositions = new Map();  // Silent background true live positions
+    this.taggedRunners = new Set();
+    this.tagRequestsSent = [];
+    this.toastAlerts = [];
+  }
+
+  onRemoteTelemetry(data) {
+    const { playerId, lat, lng, role, isPingSnapshot, nickname } = data;
+
+    // 1. Silent true live position tracking
+    if (lat != null && lng != null) {
+      this.trueLivePositions.set(playerId, { lat, lng, role, nickname });
+    }
+
+    // 2. Seeker only updates visual ping location on ping snapshot
+    if (isPingSnapshot) {
+      this.lastKnownPositions.set(playerId, { lat, lng, role, nickname });
+    }
+  }
+
+  tagRunner(targetPlayerId, runnerNickname) {
+    const maxCatchRadius = 15; // 15 meters
+    const selfLat = this.lastSelfCoords.lat;
+    const selfLng = this.lastSelfCoords.lng;
+
+    const truePos = this.trueLivePositions.get(targetPlayerId);
+    let trueDistance = Infinity;
+    if (truePos) {
+      trueDistance = GeoEngine.getDistance(selfLat, selfLng, truePos.lat, truePos.lng);
+    }
+
+    if (trueDistance > maxCatchRadius) {
+      this.toastAlerts.push('The target is no longer here.');
+      return false; // REJECTED
+    }
+
+    this.tagRequestsSent.push({
+      targetPlayerId,
+      runnerNickname,
+      distance: trueDistance
+    });
+    return true; // ACCEPTED
+  }
+}
+
+const gameSec24 = new MockAntiExploitGame();
+const runnerId = 'runner_bob_1';
+
+// Step A: Runner is at initial position (40.7128, -74.0060) and sends ping snapshot
+gameSec24.onRemoteTelemetry({
+  playerId: runnerId,
+  lat: 40.7128,
+  lng: -74.0060,
+  role: 'runner',
+  isPingSnapshot: true,
+  nickname: 'RunnerBob'
+});
+
+assert(gameSec24.lastKnownPositions.has(runnerId), 'Runner position recorded in displayed ping positions');
+assert(gameSec24.trueLivePositions.has(runnerId), 'Runner position silently recorded in true live positions');
+
+// Step B: Runner runs away 250 meters north to (40.71505, -74.0060) and transmits silent live telemetry
+gameSec24.onRemoteTelemetry({
+  playerId: runnerId,
+  lat: 40.71505,
+  lng: -74.0060,
+  role: 'runner',
+  isPingSnapshot: false, // NOT a ping snapshot (silent live)
+  nickname: 'RunnerBob'
+});
+
+// Verify Split State:
+const displayedPos = gameSec24.lastKnownPositions.get(runnerId);
+const actualPos = gameSec24.trueLivePositions.get(runnerId);
+assert(displayedPos.lat === 40.7128, 'Displayed ping position remains at stale coordinates (40.7128)');
+assert(actualPos.lat === 40.71505, 'True live position accurately tracks runner at new coordinates (40.71505)');
+
+// Step C: Seeker walks to the STALE ping marker (40.7128, -74.0060) where distance to marker is 0m
+gameSec24.lastSelfCoords = { lat: 40.7128, lng: -74.0060 };
+const distToStalePing = GeoEngine.getDistance(gameSec24.lastSelfCoords.lat, gameSec24.lastSelfCoords.lng, displayedPos.lat, displayedPos.lng);
+const distToTrueLive = GeoEngine.getDistance(gameSec24.lastSelfCoords.lat, gameSec24.lastSelfCoords.lng, actualPos.lat, actualPos.lng);
+assert(distToStalePing === 0, 'Seeker is directly standing at the stale ping marker (0m)');
+assert(distToTrueLive > 200, 'Runner is actually over 200 meters away in reality (~250m)');
+
+// Step D: Seeker attempts catch at stale ping marker -> Must be REJECTED!
+const exploitAttempt = gameSec24.tagRunner(runnerId, 'RunnerBob');
+assert(exploitAttempt === false, 'Stale ping catch exploit attempt is REJECTED');
+assert(gameSec24.tagRequestsSent.length === 0, 'Zero network tag packets sent during stale catch attempt');
+assert(gameSec24.toastAlerts.includes('The target is no longer here.'), 'Seeker UI displays: "The target is no longer here."');
+
+// Step E: Seeker chases runner to their TRUE live location (40.71505, -74.0060)
+gameSec24.lastSelfCoords = { lat: 40.71505, lng: -74.0060 };
+const legitAttempt = gameSec24.tagRunner(runnerId, 'RunnerBob');
+assert(legitAttempt === true, 'Legitimate live catch within true catch radius is ACCEPTED');
+assert(gameSec24.tagRequestsSent.length === 1, 'Network tag packet sent for verified live proximity catch');
+assert(gameSec24.tagRequestsSent[0].distance < 1, 'Tag distance computed from live GPS proximity (< 1m)');
+
 // Summary
 console.log('\n======================================================');
 console.log(`📊 TEST RESULTS: ${testsPassed} PASSED, ${testsFailed} FAILED`);

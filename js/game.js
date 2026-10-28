@@ -36,7 +36,8 @@ class ManhuntGame {
     this.lobbySyncInterval = null;
 
     // Telemetry cache
-    this.lastKnownPositions = new Map(); // id -> { lat, lng, role, timestamp, nickname }
+    this.lastKnownPositions = new Map(); // id -> { lat, lng, role, timestamp, nickname } (displayed/pinged positions for UI)
+    this.trueLivePositions = new Map(); // id -> { lat, lng, role, timestamp, nickname } (silent true live GPS positions)
     this.lastSelfCoords = null;
 
     // Audio & sensory state
@@ -85,6 +86,7 @@ class ManhuntGame {
 
     // Clear collections
     this.lastKnownPositions.clear();
+    this.trueLivePositions.clear();
     this.taggedRunners.clear();
     this.activeRunners.clear();
     this.initialRunners.clear();
@@ -797,6 +799,17 @@ class ManhuntGame {
   onRemoteTelemetry(data) {
     const { playerId, lat, lng, role, isPingSnapshot, isReconSweep, isLiveRunnerBroadcast, nickname } = data;
 
+    // 1. Silently record TRUE live position in the background for live proximity evaluations
+    if (playerId && lat != null && lng != null) {
+      this.trueLivePositions.set(playerId, {
+        lat: Number(lat),
+        lng: Number(lng),
+        role: role,
+        timestamp: Date.now(),
+        nickname: nickname || 'Operative'
+      });
+    }
+
     if (role === 'runner' && !this.taggedRunners.has(playerId)) {
       this.activeRunners.add(playerId);
     } else if (role === 'seeker') {
@@ -990,10 +1003,12 @@ class ManhuntGame {
         break;
       }
 
-      case 'global_announcement':
-        UI.notifyCriticalEvent('ADMIN BROADCAST', `📢 ${message || data}`, 'warning');
+      case 'global_announcement': {
+        const text = message || (data && (data.message || data.text)) || packet.text || (typeof data === 'string' ? data : 'Administrative Alert');
+        UI.notifyCriticalEvent('ADMIN BROADCAST', `📢 ${text}`, 'warning');
         UI.playAudioCue('countdown');
         break;
+      }
     }
   }
 
@@ -1093,18 +1108,47 @@ class ManhuntGame {
     }
 
     const now = Date.now();
-    if (now - this.lastTagAttemptTime < 2500) {
+    if (now - this.lastTagAttemptTime < 1500) {
       return; // Debounce rapid tag clicks
     }
     this.lastTagAttemptTime = now;
 
-    const tagDistance = this.nearestOpponentDistance ? Math.round(this.nearestOpponentDistance) : Config.settings.tagDistanceMeters;
+    // Check seeker live GPS
+    const selfLat = this.lastSelfCoords ? this.lastSelfCoords.lat : null;
+    const selfLng = this.lastSelfCoords ? this.lastSelfCoords.lng : null;
+    if (selfLat == null || selfLng == null) {
+      UI.showToast('GPS position unavailable', 'warning');
+      return;
+    }
+
+    const maxCatchRadius = Config.settings.tagDistanceMeters || 15;
+
+    // Retrieve target runner's TRUE live position and displayed ping position
+    const truePos = this.trueLivePositions.get(targetPlayerId);
+
+    let trueDistance = Infinity;
+    if (truePos && truePos.lat != null && truePos.lng != null) {
+      trueDistance = GeoEngine.getDistance(selfLat, selfLng, truePos.lat, truePos.lng);
+    }
+
+    // Stale Ping Catch Exploit Protection:
+    // If seeker attempts to catch near a stale ping marker, but the runner's TRUE live location
+    // is outside the catch radius, reject the catch and display the alert:
+    if (trueDistance > maxCatchRadius) {
+      UI.showToast('The target is no longer here.', 'warning');
+      UI.playAudioCue('radar-blip');
+      return;
+    }
+
+    const tagDistance = Math.round(trueDistance);
     const tagData = {
       seekerId: Network.playerId,
       seekerName: this.nickname,
       runnerId: targetPlayerId,
       runnerName: runnerNickname,
       tagDistance: tagDistance,
+      seekerLat: selfLat,
+      seekerLng: selfLng,
       timestamp: Date.now()
     };
 
@@ -1127,6 +1171,16 @@ class ManhuntGame {
     // Gate tag event: if already caught, or role already converted, or already tagged, ignore
     if (this.isCaught || this.isTagged || this.role === 'seeker' || this.taggedRunners.has(Network.playerId)) {
       return;
+    }
+
+    // Double check on runner: if seeker transmitted seekerLat/seekerLng, verify live distance
+    if (data.seekerLat != null && data.seekerLng != null && this.lastSelfCoords) {
+      const liveDist = GeoEngine.getDistance(this.lastSelfCoords.lat, this.lastSelfCoords.lng, data.seekerLat, data.seekerLng);
+      const maxLeniency = (Config.settings.tagDistanceMeters || 15) + 12; // Buffer for GPS drift
+      if (liveDist > maxLeniency) {
+        console.warn(`Tag rejected by runner: live distance ${liveDist}m exceeds allowed range`);
+        return;
+      }
     }
 
     // Debounce duplicate prompts for identical tag within 5 seconds

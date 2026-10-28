@@ -359,11 +359,22 @@ class AdminEngine {
     // 1. MQTT Dispatch
     if (this.mqttClient && this.mqttClient.isConnected()) {
       try {
-        const topic = `manhunt/room/${targetRoom}/admin_command`;
-        const message = new Paho.MQTT.Message(JSON.stringify(packet));
-        message.destinationName = topic;
-        message.qos = 0;
-        this.mqttClient.send(message);
+        const sendMqtt = (topic) => {
+          const message = new Paho.MQTT.Message(JSON.stringify(packet));
+          message.destinationName = topic;
+          message.qos = 0;
+          this.mqttClient.send(message);
+        };
+
+        if (targetRoom === 'GLOBAL') {
+          sendMqtt('manhunt/global/admin_command');
+          sendMqtt('manhunt/room/GLOBAL/admin_command');
+          for (const rCode of this.rooms.keys()) {
+            sendMqtt(`manhunt/room/${rCode}/admin_command`);
+          }
+        } else {
+          sendMqtt(`manhunt/room/${targetRoom}/admin_command`);
+        }
       } catch (e) {
         console.warn('MQTT broadcastCommand error:', e);
       }
@@ -372,14 +383,26 @@ class AdminEngine {
     // 2. BroadcastChannel Dispatch (Multi-Tab / Local)
     try {
       if (typeof BroadcastChannel !== 'undefined') {
-        const bc = new BroadcastChannel('manhunt_' + targetRoom);
-        bc.postMessage(packet);
-        setTimeout(() => { try { bc.close(); } catch (e) {} }, 500);
+        const sendBc = (chName) => {
+          const bc = new BroadcastChannel(chName);
+          bc.postMessage(packet);
+          setTimeout(() => { try { bc.close(); } catch (e) {} }, 500);
+        };
+
+        if (targetRoom === 'GLOBAL') {
+          sendBc('manhunt_GLOBAL');
+          sendBc('manhunt_bus');
+          for (const rCode of this.rooms.keys()) {
+            sendBc('manhunt_' + rCode);
+          }
+        } else {
+          sendBc('manhunt_' + targetRoom);
+        }
       }
     } catch (e) {}
 
-    // 3. If local client is connected to this room, apply immediately
-    if (typeof Game !== 'undefined' && (targetRoom === 'GLOBAL' || targetRoom === Game.roomCode)) {
+    // 3. If local client is connected, apply immediately
+    if (typeof Game !== 'undefined') {
       Game.handleAdminCommand(commandPayload);
     }
   }
@@ -1487,7 +1510,10 @@ class AdminEngine {
   sendGlobalBroadcast() {
     const input = document.getElementById('admin-announcement-input');
     const msg = (input?.value || '').trim();
-    if (!msg) return;
+    if (!msg) {
+      UI.showToast('Please enter an announcement message to broadcast', 'warning');
+      return;
+    }
 
     this.broadcastCommand('GLOBAL', {
       type: 'global_announcement',
@@ -1764,3 +1790,32 @@ class AdminBotManager {
 const Admin = new AdminEngine();
 const AdminBot = new AdminBotManager();
 const AdminEngineStatic = Admin;
+
+if (typeof window !== 'undefined') {
+  window.Admin = Admin;
+  window.AdminBot = AdminBot;
+  window.AdminEngineStatic = Admin;
+
+  const bindAdminEvents = () => {
+    const broadcastBtn = document.getElementById('btn-admin-broadcast');
+    if (broadcastBtn) {
+      broadcastBtn.onclick = () => Admin.sendGlobalBroadcast();
+    }
+
+    const broadcastInput = document.getElementById('admin-announcement-input');
+    if (broadcastInput) {
+      broadcastInput.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          Admin.sendGlobalBroadcast();
+        }
+      };
+    }
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindAdminEvents);
+  } else {
+    bindAdminEvents();
+  }
+}

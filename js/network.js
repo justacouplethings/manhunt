@@ -71,6 +71,12 @@ class NetworkEngine {
         this.broadcastChannel.onmessage = (event) => {
           this.handleIncomingRaw(event.data);
         };
+
+        if (this.globalBroadcastChannel) this.globalBroadcastChannel.close();
+        this.globalBroadcastChannel = new BroadcastChannel('manhunt_GLOBAL');
+        this.globalBroadcastChannel.onmessage = (event) => {
+          this.handleIncomingRaw(event.data);
+        };
       }
     } catch (e) {
       console.warn('BroadcastChannel not supported', e);
@@ -138,12 +144,16 @@ class NetworkEngine {
           this.reconnectAttempts = 0;
           console.log(`Connected to Manhunt Relay (${broker.host}) for room ${this.roomCode}`);
 
-          // Wildcard subscription for all room messages
+          // Wildcard subscription for all room messages + global admin messages
           const topic = `manhunt/room/${this.roomCode}/#`;
           this.client.subscribe(topic, {
             qos: 0,
             onSuccess: () => {
               console.log(`Subscribed to topic ${topic}`);
+              try {
+                this.client.subscribe('manhunt/global/#', { qos: 0 });
+                this.client.subscribe('manhunt/room/GLOBAL/#', { qos: 0 });
+              } catch (e) {}
               this.emit('connected', { mode: 'cloud', broker: broker.host });
               this.startHeartbeat();
 
@@ -503,6 +513,10 @@ class NetworkEngine {
     if (this.broadcastChannel) {
       this.broadcastChannel.close();
       this.broadcastChannel = null;
+    }
+    if (this.globalBroadcastChannel) {
+      this.globalBroadcastChannel.close();
+      this.globalBroadcastChannel = null;
     }
     if (this.client && this.client.isConnected()) {
       try {
