@@ -220,14 +220,20 @@ async function runE2ETests() {
     await ingameSettingsModal.waitFor({ state: 'visible', timeout: 3000 });
     console.log('    ✅ In-Game Settings Modal opened successfully via gear icon');
 
-    // Verify toggles
+    // Verify toggles (high accuracy GPS removed from menu and left open by default)
     const soundToggle = page.locator('#ingame-setting-sound');
     const vibToggle = page.locator('#ingame-setting-vibration');
     const wakeToggle = page.locator('#ingame-setting-wakelock');
-    const gpsToggle = page.locator('#ingame-setting-gps');
 
     if (await soundToggle.isVisible() && await vibToggle.isVisible()) {
       console.log('    ✅ Volume and notification/vibration toggles verified');
+    }
+
+    // Verify Leave Match button styling matches Save button with red danger class
+    const leaveBtn = page.locator('#btn-ingame-leave-match');
+    const hasDangerClass = await leaveBtn.evaluate(el => el.classList.contains('btn-danger'));
+    if (hasDangerClass) {
+      console.log('    ✅ Leave Match button styled with matching red tactical button');
     }
 
     // Test Save button

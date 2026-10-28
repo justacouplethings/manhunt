@@ -295,11 +295,12 @@
       <!-- Fullscreen Map Background -->
       <div id="map-view"></div>
 
-      <!-- Floating Map Zoom & Fitting Controls -->
+      <!-- Floating Map Zoom, Fitting & Target Controls -->
       <div class="map-floating-controls">
         <button type="button" id="btn-zoom-in" class="map-zoom-btn" title="Zoom In" aria-label="Zoom In">➕</button>
         <button type="button" id="btn-zoom-out" class="map-zoom-btn" title="Zoom Out" aria-label="Zoom Out">➖</button>
         <button type="button" id="btn-fit-all-float" class="map-zoom-btn" title="Fit All Squad Members" aria-label="Fit All">🗺️</button>
+        <button type="button" id="btn-open-targets" class="map-zoom-btn btn-targets-float" title="Squad Targets & Roster" aria-label="Targets">🎯</button>
       </div>
 
       <!-- Operation Paused Overlay -->
@@ -394,16 +395,13 @@
           🎯 TAG RUNNER (RANGE: 15m)
         </button>
 
-        <!-- Action Buttons Row -->
+        <!-- Action Buttons Row (Clean 3-Button Layout) -->
         <div class="hud-actions-row">
           <button type="button" id="btn-recenter" class="hud-action-btn active">
             <span>🎯</span> Recenter
           </button>
           <button type="button" id="btn-fit-all" class="hud-action-btn">
             <span>🗺️</span> Fit All
-          </button>
-          <button type="button" id="btn-open-targets" class="hud-action-btn">
-            <span>🎯</span> Targets
           </button>
           <button type="button" id="btn-panic-ping" class="hud-action-btn btn-flare">
             <span>📍</span> Flare
@@ -973,22 +971,6 @@
             </label>
           </div>
 
-          <!-- High Accuracy GPS Toggle -->
-          <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 12px; background:rgba(255,255,255,0.03); border:1px solid var(--theme-border); border-radius:var(--radius-md);">
-            <div>
-              <div style="font-weight:700; font-size:0.88rem; color:var(--theme-text-primary); display:flex; align-items:center; gap:6px;">
-                <span>🛰️</span> High Accuracy GPS
-              </div>
-              <div style="font-size:0.72rem; color:var(--theme-text-muted);">
-                Precision hardware satellite positioning
-              </div>
-            </div>
-            <label class="toggle-switch">
-              <input type="checkbox" id="ingame-setting-gps" checked>
-              <span class="slider"></span>
-            </label>
-          </div>
-
           <!-- Match Status Info Card -->
           <div style="padding:10px 12px; background:rgba(0, 245, 180, 0.05); border:1px solid rgba(0, 245, 180, 0.2); border-radius:var(--radius-md); font-size:0.78rem;">
             <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
@@ -1027,7 +1009,7 @@
         </p>
         <div style="display:flex; gap:10px; flex-shrink:0;">
           <button type="button" id="btn-cancel-exit" class="btn-secondary" style="flex:1;">CANCEL</button>
-          <button type="button" id="btn-confirm-exit" class="btn-primary" style="flex:1; background:var(--theme-gradient-seeker); color:#fff;">LEAVE MATCH</button>
+          <button type="button" id="btn-confirm-exit" class="btn-danger" style="flex:1;">LEAVE MATCH</button>
         </div>
       </div>
     </div>

@@ -425,6 +425,48 @@ html, body {
   filter: brightness(0.96);
 }
 
+.btn-danger {
+  width: 100%;
+  padding: 15px 22px;
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 50%, #b91c1c 100%);
+  color: #ffffff;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: var(--radius-md);
+  font-family: var(--font-family);
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-shadow: 0 4px 14px rgba(220, 38, 38, 0.35);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-danger::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 50%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, transparent 100%);
+  pointer-events: none;
+}
+
+.btn-danger:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+  box-shadow: 0 6px 18px rgba(220, 38, 38, 0.45);
+}
+
+.btn-danger:active {
+  transform: translateY(1px);
+  filter: brightness(0.95);
+}
+
 .btn-secondary {
   width: 100%;
   padding: 14px 20px;
@@ -2073,6 +2115,19 @@ input:checked + .slider::before {
 
 .map-zoom-btn:active {
   transform: scale(0.95);
+}
+
+.map-zoom-btn.btn-targets-float {
+  border-color: rgba(0, 212, 255, 0.45);
+  color: var(--theme-accent-cyan);
+  font-size: 1.15rem;
+  box-shadow: 0 4px 14px rgba(0, 212, 255, 0.25);
+}
+
+.map-zoom-btn.btn-targets-float:hover {
+  background: rgba(0, 212, 255, 0.2);
+  border-color: var(--theme-accent-cyan);
+  transform: scale(1.08);
 }
 
 @media (max-height: 580px) {

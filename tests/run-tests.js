@@ -1351,6 +1351,39 @@ assert(simulatedSeeker.lastKnownPositions.get('runner-42').lng === -73.9855, 'Ru
 assert(simulatedSeeker.flareBeaconAnimationTriggered === true, 'Tactical flare beacon wave triggered on map the second flare is fired');
 assert(simulatedSeeker.flareBeaconCaller === 'GhostRunner', 'Beacon callout correctly displays caller name');
 
+console.log('\n26. Testing Floating Targets Button, High-Accuracy GPS Default & Red Leave Match Button:');
+
+// 1. Verify Targets Button relocated to floating map controls and removed from bottom row
+const indexUpdated = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+const mapFloatingControlsBlock = indexUpdated.substring(indexUpdated.indexOf('class="map-floating-controls"'), indexUpdated.indexOf('</div>', indexUpdated.indexOf('class="map-floating-controls"')));
+assert(mapFloatingControlsBlock.includes('id="btn-open-targets"'), 'Targets button is positioned in .map-floating-controls');
+assert(mapFloatingControlsBlock.includes('btn-targets-float'), 'Targets button has .btn-targets-float styling class');
+
+const hudBottomBlock = indexUpdated.substring(indexUpdated.indexOf('class="hud-actions-row"'), indexUpdated.indexOf('</div>', indexUpdated.indexOf('class="hud-actions-row"')));
+assert(!hudBottomBlock.includes('id="btn-open-targets"'), 'Targets button is removed from bottom .hud-actions-row to avoid bottom clutter');
+assert(hudBottomBlock.includes('id="btn-panic-ping"'), 'Bottom actions row retains Flare button with full space');
+assert(hudBottomBlock.includes('id="btn-recenter"'), 'Bottom actions row retains Recenter button');
+assert(hudBottomBlock.includes('id="btn-fit-all"'), 'Bottom actions row retains Fit All button');
+
+// 2. Verify High Accuracy GPS removed from in-game settings menu but enabled as default
+const inGameSettingsModalBlock = indexUpdated.substring(indexUpdated.indexOf('id="modal-ingame-settings"'), indexUpdated.indexOf('id="modal-confirm-exit"'));
+assert(!inGameSettingsModalBlock.includes('id="ingame-setting-gps"'), 'High Accuracy GPS toggle is removed from in-game settings modal');
+
+const configJsContent = fs.readFileSync(path.join(__dirname, '../js/config.js'), 'utf8');
+assert(configJsContent.includes('highAccuracyGPS: true'), 'High Accuracy GPS is enabled/open by default in DEFAULT_CONFIG');
+
+// 3. Verify Red Leave Match Button matching Save Button
+const stylesUpdated = fs.readFileSync(path.join(__dirname, '../css/styles.css'), 'utf8');
+assert(stylesUpdated.includes('.btn-danger {'), '.btn-danger CSS class is defined in styles.css');
+assert(stylesUpdated.includes('.btn-danger') && stylesUpdated.includes('linear-gradient(135deg, #ef4444'), '.btn-danger has vibrant red gradient background');
+assert(stylesUpdated.includes('.btn-danger') && stylesUpdated.includes('padding: 15px 22px'), '.btn-danger has exact same padding (15px 22px) as .btn-primary');
+assert(stylesUpdated.includes('.btn-danger') && stylesUpdated.includes('text-transform: uppercase'), '.btn-danger has exact same uppercase text transform as .btn-primary');
+assert(stylesUpdated.includes('.btn-danger') && stylesUpdated.includes('font-weight: 800'), '.btn-danger has exact same font-weight (800) as .btn-primary');
+
+// 4. Verify in-game leave match button uses btn-danger
+assert(indexUpdated.includes('id="btn-ingame-leave-match" class="btn-danger"'), 'Leave match button in settings menu uses .btn-danger');
+assert(indexUpdated.includes('id="btn-confirm-exit" class="btn-danger"'), 'Confirm leave button in exit modal uses .btn-danger');
+
 // Summary
 console.log('\n======================================================');
 console.log(`📊 TEST RESULTS: ${testsPassed} PASSED, ${testsFailed} FAILED`);

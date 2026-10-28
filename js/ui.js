@@ -796,7 +796,7 @@ class UIManager {
     if (selectorPill) selectorPill.style.display = isSeeker ? 'flex' : 'none';
 
     const openTargetsBtn = document.getElementById('btn-open-targets');
-    if (openTargetsBtn) openTargetsBtn.style.display = isSeeker ? 'flex' : 'none';
+    if (openTargetsBtn) openTargetsBtn.style.display = 'flex';
 
     const flareBtn = document.getElementById('btn-panic-ping');
     if (flareBtn) flareBtn.style.display = isSeeker ? 'none' : 'flex';
@@ -1133,13 +1133,12 @@ class UIManager {
         const sound = document.getElementById('ingame-setting-sound')?.checked ?? true;
         const vib = document.getElementById('ingame-setting-vibration')?.checked ?? true;
         const wake = document.getElementById('ingame-setting-wakelock')?.checked ?? true;
-        const gps = document.getElementById('ingame-setting-gps')?.checked ?? true;
 
         Config.save({
           soundEnabled: sound,
           vibrationEnabled: vib,
           wakeLockEnabled: wake,
-          highAccuracyGPS: gps
+          highAccuracyGPS: true // Precision hardware satellite positioning open by default
         });
 
         this.closeModal('modal-ingame-settings');
@@ -1503,12 +1502,10 @@ class UIManager {
     const soundToggle = document.getElementById('ingame-setting-sound');
     const vibToggle = document.getElementById('ingame-setting-vibration');
     const wakeToggle = document.getElementById('ingame-setting-wakelock');
-    const gpsToggle = document.getElementById('ingame-setting-gps');
 
     if (soundToggle) soundToggle.checked = !!Config.settings.soundEnabled;
     if (vibToggle) vibToggle.checked = !!Config.settings.vibrationEnabled;
     if (wakeToggle) wakeToggle.checked = !!Config.settings.wakeLockEnabled;
-    if (gpsToggle) gpsToggle.checked = !!Config.settings.highAccuracyGPS;
 
     const roomEl = document.getElementById('ingame-info-room');
     const roleEl = document.getElementById('ingame-info-role');
