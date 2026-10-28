@@ -81,13 +81,13 @@ async function runAdminTest() {
   await page.waitForTimeout(200);
   assert(await errorMsg.isVisible(), 'Error message displayed for invalid password');
 
-  // Positive test: default PIN "1337"
-  await passInput.fill('1337');
+  // Positive test: new password "shebsilover911#"
+  await passInput.fill('shebsilover911#');
   await unlockBtn.click();
   await page.waitForTimeout(500);
 
   const adminScreen = page.locator('#screen-admin');
-  assert(await adminScreen.isVisible(), 'Correct PIN unlocked Admin Omni-Command Dashboard');
+  assert(await adminScreen.isVisible(), 'Password "shebsilover911#" unlocked Admin Omni-Command Dashboard');
 
   // [4] Test Tab Navigation
   console.log('\n[4] Testing Admin Navigation Tabs...');

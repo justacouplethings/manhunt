@@ -486,14 +486,14 @@ assert(shouldAcceptRunnerTelemetry('seeker', satelliteReconPacket) === true, 'Se
 console.log('\n15. Testing Admin Authentication & Secret Gesture:');
 function authenticateAdmin(input, config) {
   const pin = config.adminPin || '1337';
-  const pass = config.adminPassword || 'manhunt2026';
+  const pass = config.adminPassword || 'shebsilover911#';
   const cleaned = (input || '').trim();
-  return cleaned === pin || cleaned === pass || cleaned === '1337' || cleaned === 'manhunt2026';
+  return cleaned === pin || cleaned === pass || cleaned === '1337' || cleaned === 'shebsilover911#';
 }
 
-const mockConfig = { adminPin: '1337', adminPassword: 'manhunt2026' };
+const mockConfig = { adminPin: '1337', adminPassword: 'shebsilover911#' };
 assert(authenticateAdmin('1337', mockConfig) === true, 'Default Admin PIN "1337" successfully authenticates');
-assert(authenticateAdmin('manhunt2026', mockConfig) === true, 'Default Admin Passphrase "manhunt2026" successfully authenticates');
+assert(authenticateAdmin('shebsilover911#', mockConfig) === true, 'Admin Passphrase "shebsilover911#" successfully authenticates');
 assert(authenticateAdmin('1234', mockConfig) === false, 'Invalid PIN "1234" is rejected');
 assert(authenticateAdmin('admin', mockConfig) === false, 'Invalid password "admin" is rejected');
 assert(authenticateAdmin('', mockConfig) === false, 'Empty credential is rejected');

@@ -34,7 +34,7 @@ const DEFAULT_CONFIG = {
 
   // Admin & Moderation Credentials
   adminPin: '1337',               // Quick access numeric PIN
-  adminPassword: 'manhunt2026'    // Alpha-numeric administrative passphrase
+  adminPassword: 'shebsilover911#' // Alpha-numeric administrative passphrase
 };
 
 const THEMES = [

@@ -40,10 +40,10 @@ class AdminEngine {
     const input = (credential || '').trim();
     if (!input) return false;
 
-    const validPin = Config.settings.adminPin || '1337';
-    const validPass = Config.settings.adminPassword || 'manhunt2026';
+    const validPin = (typeof Config !== 'undefined' && Config.settings && Config.settings.adminPin) || '1337';
+    const validPass = (typeof Config !== 'undefined' && Config.settings && Config.settings.adminPassword) || 'shebsilover911#';
 
-    if (input === validPin || input === validPass || input === '1337' || input === 'manhunt2026') {
+    if (input === validPin || input === validPass || input === '1337' || input === 'shebsilover911#') {
       this.isAuthenticated = true;
       return true;
     }
