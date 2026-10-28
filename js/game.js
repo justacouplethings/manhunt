@@ -159,6 +159,10 @@ class ManhuntGame {
       this.handleHostCommand(data);
     });
 
+    Network.on('admin_command', (data) => {
+      this.handleAdminCommand(data);
+    });
+
     Network.on('telemetry', (data) => {
       this.onRemoteTelemetry(data);
     });
@@ -772,6 +776,105 @@ class ManhuntGame {
       this.leaveMatch();
       UI.notifyCriticalEvent('OPERATION TERMINATED', `🛑 Operation terminated by Host: ${data && data.reason ? data.reason : 'Host aborted match'}`, 'danger');
       UI.playAudioCue('tag');
+    }
+  }
+
+  /**
+   * Authoritative administrative command processor
+   */
+  handleAdminCommand(packet) {
+    if (!packet || typeof packet !== 'object') return;
+    
+    // Check if command is targeting a specific room
+    if (packet.roomCode && packet.roomCode !== 'GLOBAL' && this.roomCode && packet.roomCode !== this.roomCode) {
+      return;
+    }
+
+    const { type, cmd, data, targetPlayerId, newRole, settings, message, reason } = packet;
+    const commandType = type || cmd;
+
+    console.log('⚡ Admin Command received:', commandType, packet);
+
+    switch (commandType) {
+      case 'force_pause':
+      case 'pause':
+        this.isPaused = true;
+        UI.setPauseState(true, this.isHost);
+        UI.playAudioCue('warning');
+        UI.notifyCriticalEvent('ADMIN OVERRIDE', '⏸️ Operation paused by System Administrator', 'warning');
+        break;
+
+      case 'force_resume':
+      case 'resume':
+        this.isPaused = false;
+        UI.setPauseState(false, this.isHost);
+        UI.playAudioCue('start');
+        UI.notifyCriticalEvent('ADMIN OVERRIDE', '▶️ Operation resumed by System Administrator', 'info');
+        break;
+
+      case 'force_end':
+      case 'emergency_stop':
+        this.isPaused = false;
+        UI.setPauseState(false, this.isHost);
+        this.leaveMatch();
+        UI.notifyCriticalEvent('ADMIN OVERRIDE', `🛑 Operation terminated by System Administrator${reason ? ': ' + reason : ''}`, 'danger');
+        UI.playAudioCue('tag');
+        break;
+
+      case 'set_role':
+        if (targetPlayerId === Network.playerId) {
+          const roleToSet = newRole || (data && data.newRole);
+          if (roleToSet && (roleToSet === 'runner' || roleToSet === 'seeker')) {
+            this.role = roleToSet;
+            Network.role = roleToSet;
+            UI.updateRoleDisplay(this.role);
+            if (this.lastSelfCoords) {
+              MapController.updateSelfLocation(this.lastSelfCoords.lat, this.lastSelfCoords.lng, this.role, this.lastSelfCoords.heading);
+            }
+            UI.notifyCriticalEvent('ROLE ASSIGNED', `👑 Administrator assigned your role to ${roleToSet.toUpperCase()}`, 'info');
+            UI.playAudioCue('start');
+          }
+        }
+        break;
+
+      case 'kick_player':
+        if (targetPlayerId === Network.playerId) {
+          this.leaveMatch();
+          UI.notifyCriticalEvent('ACCESS REVOKED', `👢 You have been removed from the operation by a System Administrator${reason ? ' (' + reason + ')' : ''}`, 'danger');
+          alert(`You have been removed from the room by an Administrator${reason ? ': ' + reason : ''}`);
+        }
+        break;
+
+      case 'ban_player':
+        if (targetPlayerId === Network.playerId) {
+          try { localStorage.setItem('manhunt_banned', 'true'); } catch (e) {}
+          this.leaveMatch();
+          alert(`ACCESS BANNED: You have been permanently banned by a System Administrator${reason ? ' for: ' + reason : ''}.`);
+          location.reload();
+        }
+        break;
+
+      case 'override_settings': {
+        const newSettings = settings || data;
+        if (newSettings && typeof newSettings === 'object') {
+          Config.save(newSettings);
+          UI.populateSettingsUI();
+          UI.updateLobbyRulesDisplay(newSettings);
+          if (newSettings.boundaryRadiusMeters) {
+            this.boundaryRadiusMeters = newSettings.boundaryRadiusMeters;
+            if (this.boundaryCenter) {
+              MapController.drawBoundary(this.boundaryCenter.lat, this.boundaryCenter.lng, this.boundaryRadiusMeters);
+            }
+          }
+          UI.notifyCriticalEvent('SETTINGS OVERRIDE', '⚙️ Match settings updated by System Administrator', 'info');
+        }
+        break;
+      }
+
+      case 'global_announcement':
+        UI.notifyCriticalEvent('ADMIN BROADCAST', `📢 ${message || data}`, 'warning');
+        UI.playAudioCue('countdown');
+        break;
     }
   }
 

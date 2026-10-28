@@ -294,7 +294,7 @@ class NetworkEngine {
     sendSingle();
 
     // Critical actions retransmit twice with short delays to eliminate mobile cellular packet loss
-    const criticalActions = ['start_game', 'host_command', 'role_assigned', 'tag_request', 'tag_confirmed', 'tag_disputed', 'settings_sync'];
+    const criticalActions = ['start_game', 'host_command', 'admin_command', 'role_assigned', 'tag_request', 'tag_confirmed', 'tag_disputed', 'settings_sync'];
     if (isCritical || criticalActions.includes(action)) {
       setTimeout(sendSingle, 250);
       setTimeout(sendSingle, 600);
@@ -384,6 +384,8 @@ class NetworkEngine {
       this.emit('game_started', data);
     } else if (action === 'host_command') {
       this.emit('host_command', data);
+    } else if (action === 'admin_command') {
+      this.emit('admin_command', data);
     } else if (action === 'tag_event') {
       this.emit('tag_event', data);
     } else if (action === 'settings_sync') {
@@ -420,6 +422,48 @@ class NetworkEngine {
     this.isConnected = false;
     this.roomCode = null;
     this.emit('disconnected', { reason: 'user_left' });
+  }
+
+  /**
+   * Dispatch authoritative administrative command to a specific room or global channel
+   */
+  sendAdminCommand(roomCode, command) {
+    const targetRoom = (roomCode || this.roomCode || 'GLOBAL').toUpperCase().trim();
+    const packet = {
+      msgId: 'm_admin_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now(),
+      senderId: 'admin_' + this.playerId,
+      action: 'admin_command',
+      data: { roomCode: targetRoom, ...command },
+      timestamp: Date.now()
+    };
+
+    const sendSingle = () => {
+      // Deliver over broadcast channel if active
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          const bc = new BroadcastChannel('manhunt_' + targetRoom);
+          bc.postMessage(packet);
+          setTimeout(() => { try { bc.close(); } catch (e) {} }, 500);
+        }
+      } catch (e) {}
+
+      // Deliver over MQTT
+      if (this.client && this.client.isConnected()) {
+        try {
+          const topic = `manhunt/room/${targetRoom}/admin_command`;
+          const message = new Paho.MQTT.Message(JSON.stringify(packet));
+          message.destinationName = topic;
+          message.qos = 0;
+          this.client.send(message);
+        } catch (e) {
+          console.warn('Admin MQTT send error:', e);
+        }
+      }
+    };
+
+    sendSingle();
+    setTimeout(sendSingle, 200);
+    setTimeout(sendSingle, 500);
   }
 
   static generateRoomCode() {

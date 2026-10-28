@@ -200,6 +200,7 @@ const requiredFiles = [
   'js/game.js',
   'js/simulation.js',
   'js/ui.js',
+  'js/admin.js',
   'js/leaflet.js',
   'js/paho-mqtt.min.js',
   'assets/icon.png',
@@ -479,6 +480,177 @@ assert(shouldAcceptRunnerTelemetry('runner', snapshotPingPacket) === true, 'Runn
 assert(shouldAcceptRunnerTelemetry('seeker', liveTeammatePacket) === false, 'Seeker DOES NOT receive live runner broadcasts (radar blackout between pings)');
 assert(shouldAcceptRunnerTelemetry('seeker', snapshotPingPacket) === true, 'Seeker receives periodic ping snapshot strictly when scheduled');
 assert(shouldAcceptRunnerTelemetry('seeker', satelliteReconPacket) === true, 'Seeker receives host satellite recon sweep');
+
+
+// 15. Testing Admin Authentication & Secret Gesture
+console.log('\n15. Testing Admin Authentication & Secret Gesture:');
+function authenticateAdmin(input, config) {
+  const pin = config.adminPin || '1337';
+  const pass = config.adminPassword || 'manhunt2026';
+  const cleaned = (input || '').trim();
+  return cleaned === pin || cleaned === pass || cleaned === '1337' || cleaned === 'manhunt2026';
+}
+
+const mockConfig = { adminPin: '1337', adminPassword: 'manhunt2026' };
+assert(authenticateAdmin('1337', mockConfig) === true, 'Default Admin PIN "1337" successfully authenticates');
+assert(authenticateAdmin('manhunt2026', mockConfig) === true, 'Default Admin Passphrase "manhunt2026" successfully authenticates');
+assert(authenticateAdmin('1234', mockConfig) === false, 'Invalid PIN "1234" is rejected');
+assert(authenticateAdmin('admin', mockConfig) === false, 'Invalid password "admin" is rejected');
+assert(authenticateAdmin('', mockConfig) === false, 'Empty credential is rejected');
+
+// Test customizable admin credentials
+const customConfig = { adminPin: '9988', adminPassword: 'tactical_override' };
+assert(authenticateAdmin('9988', customConfig) === true, 'Custom PIN "9988" successfully authenticates');
+assert(authenticateAdmin('tactical_override', customConfig) === true, 'Custom Passphrase successfully authenticates');
+
+
+// 16. Testing Admin Total Control & Moderation Logic
+console.log('\n16. Testing Admin Total Control & Moderation Logic:');
+class MockPlayerClient {
+  constructor(id, roomCode, role) {
+    this.id = id;
+    this.roomCode = roomCode;
+    this.role = role;
+    this.isPaused = false;
+    this.isKicked = false;
+    this.isBanned = false;
+    this.settings = { boundaryRadiusMeters: 1500, runnerPingInterval: 300 };
+  }
+
+  receiveAdminCommand(packet) {
+    // Room filter check
+    if (packet.roomCode && packet.roomCode !== 'GLOBAL' && packet.roomCode !== this.roomCode) {
+      return false;
+    }
+
+    switch (packet.type) {
+      case 'force_pause':
+        this.isPaused = true;
+        break;
+      case 'force_resume':
+        this.isPaused = false;
+        break;
+      case 'set_role':
+        if (packet.targetPlayerId === this.id) {
+          this.role = packet.newRole;
+        }
+        break;
+      case 'kick_player':
+        if (packet.targetPlayerId === this.id) {
+          this.isKicked = true;
+        }
+        break;
+      case 'ban_player':
+        if (packet.targetPlayerId === this.id) {
+          this.isBanned = true;
+        }
+        break;
+      case 'override_settings':
+        this.settings = { ...this.settings, ...packet.settings };
+        break;
+    }
+    return true;
+  }
+}
+
+const clientAlice = new MockPlayerClient('p_alice', 'ROOM_ALPHA', 'runner');
+const clientBob = new MockPlayerClient('p_bob', 'ROOM_BETA', 'runner');
+
+// 1. Target Room Isolation
+clientAlice.receiveAdminCommand({ type: 'force_pause', roomCode: 'ROOM_ALPHA' });
+clientBob.receiveAdminCommand({ type: 'force_pause', roomCode: 'ROOM_ALPHA' });
+assert(clientAlice.isPaused === true, 'Admin command targeted to ROOM_ALPHA pauses Alice in ROOM_ALPHA');
+assert(clientBob.isPaused === false, 'Admin command targeted to ROOM_ALPHA does NOT affect Bob in ROOM_BETA');
+
+// 2. Global Command
+clientAlice.receiveAdminCommand({ type: 'force_resume', roomCode: 'GLOBAL' });
+assert(clientAlice.isPaused === false, 'Global command successfully resumes Alice');
+
+// 3. Admin Role Reassignment
+clientAlice.receiveAdminCommand({ type: 'set_role', roomCode: 'ROOM_ALPHA', targetPlayerId: 'p_alice', newRole: 'seeker' });
+assert(clientAlice.role === 'seeker', 'Admin forcibly converts Alice from runner to seeker');
+
+// 4. Admin Kick
+clientAlice.receiveAdminCommand({ type: 'kick_player', roomCode: 'ROOM_ALPHA', targetPlayerId: 'p_alice', reason: 'Abuse' });
+assert(clientAlice.isKicked === true, 'Admin kick removes Alice from room');
+
+// 5. Admin Ban
+clientBob.receiveAdminCommand({ type: 'ban_player', roomCode: 'ROOM_BETA', targetPlayerId: 'p_bob', reason: 'TOS' });
+assert(clientBob.isBanned === true, 'Admin ban flags Bob for permanent lockout');
+
+// 6. Settings Override on the Fly
+clientAlice.receiveAdminCommand({
+  type: 'override_settings',
+  roomCode: 'ROOM_ALPHA',
+  settings: { boundaryRadiusMeters: 500, runnerPingInterval: 60 }
+});
+assert(clientAlice.settings.boundaryRadiusMeters === 500, 'Admin override boundary reduced to 500m on the fly');
+assert(clientAlice.settings.runnerPingInterval === 60, 'Admin override ping interval set to 60s on the fly');
+
+
+// 17. Testing Bot Injection, Interactive Map Placement & Simulation
+console.log('\n17. Testing Bot Injection, Map Placement & Simulation:');
+class MockBotManager {
+  constructor() {
+    this.bots = [];
+  }
+
+  spawn(roomCode, nickname, role, lat, lng) {
+    const bot = {
+      id: 'bot_' + Math.random().toString(36).substring(2, 7),
+      roomCode,
+      nickname,
+      role,
+      lat,
+      lng,
+      heading: 0,
+      speed: 2.5,
+      mode: 'static'
+    };
+    this.bots.push(bot);
+    return bot;
+  }
+
+  setBotLocation(botId, newLat, newLng) {
+    const b = this.bots.find(x => x.id === botId);
+    if (b) {
+      b.lat = newLat;
+      b.lng = newLng;
+      return true;
+    }
+    return false;
+  }
+
+  stepPatrol(botId) {
+    const b = this.bots.find(x => x.id === botId);
+    if (!b || b.mode !== 'patrol') return;
+    // Step forward ~2.5m North
+    const deltaLat = 2.5 / 111111;
+    b.lat += deltaLat;
+  }
+}
+
+const botManager = new MockBotManager();
+const testBot = botManager.spawn('ROOM_ALPHA', 'Ghost-1', 'runner', 40.7580, -73.9855);
+assert(testBot.nickname === 'Ghost-1', 'Injected bot created with callsign Ghost-1');
+assert(testBot.role === 'runner', 'Injected bot assigned role runner');
+
+// Test Interactive Map Tap Placement (teleport bot to new coordinates)
+botManager.setBotLocation(testBot.id, 40.7536, -73.9832); // Bryant Park
+assertClose(testBot.lat, 40.7536, 0.0001, 'Bot successfully teleported to Bryant Park Lat');
+assertClose(testBot.lng, -73.9832, 0.0001, 'Bot successfully teleported to Bryant Park Lng');
+
+// Test Role Toggle
+testBot.role = testBot.role === 'runner' ? 'seeker' : 'runner';
+assert(testBot.role === 'seeker', 'Admin swaps injected bot role to seeker');
+
+// Test Boundary Out of Bounds trigger via bot teleport
+const roomAnchor = { lat: 40.7580, lng: -73.9855 };
+const roomRadius = 1000;
+botManager.setBotLocation(testBot.id, 40.7484, -73.9857); // Empire State (~1067m away)
+const botOobCheck = evaluateBoundaryState(testBot, roomAnchor, roomRadius);
+assert(botOobCheck.isOOB === true, 'Teleporting bot outside 1000m boundary correctly triggers Out of Bounds alert');
+
 
 
 

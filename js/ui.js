@@ -10,6 +10,20 @@ class UIManager {
   }
 
   init() {
+    // Check if device is banned by Administrator
+    try {
+      if (localStorage.getItem('manhunt_banned') === 'true') {
+        document.body.innerHTML = `
+          <div style="background:#07090e; color:#ff4757; height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:24px; font-family:sans-serif;">
+            <div style="font-size:3.5rem; margin-bottom:12px;">🚫</div>
+            <h1 style="font-size:1.8rem; font-weight:900; letter-spacing:0.05em; margin-bottom:8px;">ACCESS RESTRICTED</h1>
+            <p style="color:#94a3b8; max-width:380px; font-size:0.9rem; line-height:1.5;">This device has been permanently suspended from the Manhunt operations network by a System Administrator.</p>
+          </div>
+        `;
+        return;
+      }
+    } catch (e) {}
+
     this.bindEvents();
     this.populateSettingsUI();
     Config.applyTheme();
@@ -1331,6 +1345,101 @@ class UIManager {
         }
       };
     }
+
+    // ========================================================================
+    // ADMIN CONSOLE ACCESS & AUTHENTICATION HANDLERS
+    // ========================================================================
+    
+    // Secret Gesture: Tap logo 5 times within 3 seconds
+    const appLogo = document.getElementById('app-logo');
+    let logoTapCount = 0;
+    let lastLogoTapTime = 0;
+    if (appLogo) {
+      appLogo.onclick = () => {
+        const now = Date.now();
+        if (now - lastLogoTapTime > 3000) {
+          logoTapCount = 0;
+        }
+        lastLogoTapTime = now;
+        logoTapCount++;
+
+        if (logoTapCount >= 5) {
+          logoTapCount = 0;
+          this.playAudioCue('start');
+          this.openAdminAuthModal();
+        } else if (logoTapCount >= 2) {
+          this.playAudioCue('blip');
+        }
+      };
+    }
+
+    // Discreet Admin Console button in lobby footer
+    const discreetAdminBtn = document.getElementById('btn-discreet-admin');
+    if (discreetAdminBtn) {
+      discreetAdminBtn.onclick = () => {
+        this.openAdminAuthModal();
+      };
+    }
+
+    // Admin Auth Modal Submit / Cancel / Enter key
+    const adminAuthSubmit = document.getElementById('btn-admin-auth-submit');
+    const adminAuthPassInput = document.getElementById('input-admin-pass');
+    const adminAuthCancel = document.getElementById('btn-admin-auth-cancel');
+    const adminAuthError = document.getElementById('admin-auth-error');
+
+    if (adminAuthSubmit) {
+      adminAuthSubmit.onclick = () => {
+        const pass = adminAuthPassInput ? adminAuthPassInput.value : '';
+        if (typeof Admin !== 'undefined' && Admin.authenticate(pass)) {
+          if (adminAuthError) adminAuthError.style.display = 'none';
+          if (adminAuthPassInput) adminAuthPassInput.value = '';
+          this.closeModal('modal-admin-auth');
+          this.playAudioCue('start');
+          Admin.open();
+        } else {
+          if (adminAuthError) {
+            adminAuthError.style.display = 'block';
+            adminAuthError.textContent = '❌ Access Denied: Invalid Credential';
+          }
+          this.playAudioCue('warning');
+        }
+      };
+    }
+
+    if (adminAuthPassInput) {
+      adminAuthPassInput.onkeydown = (e) => {
+        if (e.key === 'Enter' && adminAuthSubmit) {
+          adminAuthSubmit.click();
+        }
+      };
+    }
+
+    if (adminAuthCancel) {
+      adminAuthCancel.onclick = () => {
+        if (adminAuthError) adminAuthError.style.display = 'none';
+        if (adminAuthPassInput) adminAuthPassInput.value = '';
+        this.closeModal('modal-admin-auth');
+      };
+    }
+
+    // Admin Console Exit Button
+    const adminExitBtn = document.getElementById('btn-admin-exit');
+    if (adminExitBtn) {
+      adminExitBtn.onclick = () => {
+        if (typeof Admin !== 'undefined') Admin.close();
+      };
+    }
+  }
+
+  openAdminAuthModal() {
+    const errorEl = document.getElementById('admin-auth-error');
+    const inputEl = document.getElementById('input-admin-pass');
+    if (errorEl) errorEl.style.display = 'none';
+    if (inputEl) {
+      inputEl.value = '';
+      setTimeout(() => inputEl.focus(), 200);
+    }
+    this.showModal('modal-admin-auth');
   }
 }
 

@@ -35,7 +35,7 @@
          ==================================================================== -->
     <section id="screen-lobby" class="app-screen active">
       <header class="lobby-header">
-        <div class="game-logo">
+        <div class="game-logo" id="app-logo" style="cursor:pointer;" title="Tap 5 times for Admin Console">
           <span>📡</span> MANHUNT
         </div>
         <div class="game-subhead">Tactical Real-World GPS Pursuit</div>
@@ -99,6 +99,9 @@
           <a href="./privacy-policy.html" class="text-btn">
             <span>🛡️</span> Privacy Policy
           </a>
+          <button type="button" id="btn-discreet-admin" class="text-btn" style="opacity:0.35; font-size:0.75rem;" title="Omni-Command Admin Console">
+            <span>⚡</span> Admin Console
+          </button>
         </div>
       </div>
     </section>
@@ -607,6 +610,247 @@
       </div>
     </section>
 
+    <!-- ====================================================================
+         SCREEN: ADMIN DASHBOARD ("GOD'S EYE" OMNI-COMMAND)
+         ==================================================================== -->
+    <section id="screen-admin" class="app-screen">
+      <!-- Admin Top Header Bar -->
+      <div class="admin-header-bar">
+        <div class="admin-header-left">
+          <div class="admin-title">
+            <span>🛡️</span> OMNI-COMMAND
+          </div>
+          <div id="admin-connection-badge" class="admin-conn-pill">RELAY: Connecting...</div>
+        </div>
+        <div class="admin-header-center">
+          <span id="admin-stat-rooms" class="admin-stat-chip">0 Rooms</span>
+          <span id="admin-stat-players" class="admin-stat-chip">0 Players</span>
+          <span id="admin-stat-bots" class="admin-stat-chip">0 Bots</span>
+        </div>
+        <div class="admin-header-right">
+          <button type="button" id="btn-admin-exit" class="admin-exit-btn">
+            <span>✕</span> EXIT
+          </button>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="admin-nav-bar">
+        <button type="button" id="tab-btn-admin-rooms" class="admin-nav-tab active" onclick="Admin.switchTab('rooms')">
+          <span>🌐</span> Rooms
+        </button>
+        <button type="button" id="tab-btn-admin-players" class="admin-nav-tab" onclick="Admin.switchTab('players')">
+          <span>👥</span> Players
+        </button>
+        <button type="button" id="tab-btn-admin-map" class="admin-nav-tab" onclick="Admin.switchTab('map')">
+          <span>🗺️</span> God's Eye Map
+        </button>
+        <button type="button" id="tab-btn-admin-bots" class="admin-nav-tab" onclick="Admin.switchTab('bots')">
+          <span>🤖</span> Bot Sandbox
+        </button>
+        <button type="button" id="tab-btn-admin-settings" class="admin-nav-tab" onclick="Admin.switchTab('settings')">
+          <span>⚙️</span> Overrides
+        </button>
+      </div>
+
+      <!-- Tab Content Area -->
+      <div class="admin-content-area">
+        <!-- 1. ACTIVE ROOMS TAB -->
+        <div id="admin-tab-rooms" class="admin-tab-pane active">
+          <div class="admin-pane-toolbar">
+            <h3 class="admin-pane-title">Active Server Operations</h3>
+            <button type="button" class="btn-secondary" style="font-size:0.75rem; padding:6px 12px;" onclick="Admin.renderRoomsTab()">
+              <span>🔄</span> Refresh
+            </button>
+          </div>
+          <div id="admin-rooms-list" class="admin-card-grid">
+            <!-- Dynamically populated room cards -->
+          </div>
+        </div>
+
+        <!-- 2. GLOBAL PLAYERS DIRECTORY TAB -->
+        <div id="admin-tab-players" class="admin-tab-pane">
+          <div class="admin-pane-toolbar" style="flex-wrap:wrap; gap:8px;">
+            <div style="flex:1; min-width:200px;">
+              <input type="text" id="admin-players-search" class="tactical-input" placeholder="🔍 Search callsigns or rooms..." oninput="Admin.renderPlayersTab()" style="font-size:0.85rem; padding:8px 12px;">
+            </div>
+            <div>
+              <select id="admin-players-role-filter" class="tactical-select" onchange="Admin.renderPlayersTab()" style="font-size:0.85rem; padding:8px 12px;">
+                <option value="ALL">All Roles</option>
+                <option value="runner">Runners Only</option>
+                <option value="seeker">Seekers Only</option>
+              </select>
+            </div>
+          </div>
+          <div id="admin-players-list" class="admin-card-grid">
+            <!-- Dynamically populated player cards -->
+          </div>
+        </div>
+
+        <!-- 3. MASTER GOD'S-EYE MAP TAB -->
+        <div id="admin-tab-map" class="admin-tab-pane" style="padding:0; height:calc(100vh - 120px); position:relative;">
+          <!-- Map Floating Control Strip -->
+          <div class="admin-map-overlay-bar">
+            <select id="admin-map-room-filter" class="tactical-select admin-map-select" onchange="Admin.updateMasterMapMarkers()">
+              <option value="ALL">🌐 All Operations (Global)</option>
+            </select>
+            <button type="button" id="btn-admin-map-click-bot" class="admin-map-ctrl-btn" onclick="Admin.toggleMapPlacementMode()" title="Toggle Tap-to-Place Bot Mode">
+              <span>📍</span> Move Bot on Tap
+            </button>
+            <button type="button" id="btn-admin-map-fit" class="admin-map-ctrl-btn" onclick="Admin.fitAllMapMarkers()" title="Zoom to fit all players">
+              <span>🔍</span> Fit All
+            </button>
+            <div id="admin-map-coords-display" class="admin-map-coords">
+              Lat: --, Lng: --
+            </div>
+          </div>
+          <!-- Leaflet Map Container -->
+          <div id="admin-master-map" style="width:100%; height:100%;"></div>
+        </div>
+
+        <!-- 4. BOT & TESTING SANDBOX TAB -->
+        <div id="admin-tab-bots" class="admin-tab-pane">
+          <!-- Spawner Form Card -->
+          <div class="card admin-spawner-card">
+            <div class="card-title" style="color:var(--theme-primary);">➕ Inject Bot Operative</div>
+            <p style="font-size:0.8rem; color:var(--theme-text-muted); margin-bottom:12px;">
+              Spawn real GPS bot agents transmitting live packets to test multi-device gameplay, tag radius, and boundaries.
+            </p>
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin-bottom:12px;">
+              <div class="input-group">
+                <label class="input-label" for="admin-bot-room-target">Target Room Code</label>
+                <input type="text" id="admin-bot-room-target" class="tactical-input" placeholder="e.g. ABCD" maxlength="6">
+              </div>
+              <div class="input-group">
+                <label class="input-label" for="admin-bot-name">Bot Callsign</label>
+                <input type="text" id="admin-bot-name" class="tactical-input" placeholder="e.g. Ghost-Bot" maxlength="15">
+              </div>
+              <div class="input-group">
+                <label class="input-label" for="admin-bot-role">Tactical Role</label>
+                <select id="admin-bot-role" class="tactical-select">
+                  <option value="runner">🏃 Runner (Stealth / Pings)</option>
+                  <option value="seeker">🎯 Seeker (Live Pursuer)</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:14px;">
+              <div class="input-group">
+                <label class="input-label" for="admin-bot-lat">Initial Latitude (Optional)</label>
+                <input type="number" id="admin-bot-lat" class="tactical-input" placeholder="e.g. 40.7580" step="any">
+              </div>
+              <div class="input-group">
+                <label class="input-label" for="admin-bot-lng">Initial Longitude (Optional)</label>
+                <input type="number" id="admin-bot-lng" class="tactical-input" placeholder="e.g. -73.9855" step="any">
+              </div>
+            </div>
+
+            <button type="button" class="btn-primary" onclick="Admin.handleSpawnBotSubmit()">
+              <span>🚀</span> INJECT BOT INTO OPERATION
+            </button>
+          </div>
+
+          <!-- Active Bots Header -->
+          <div class="admin-pane-toolbar" style="margin-top:16px;">
+            <h3 class="admin-pane-title">Active Injected Bots</h3>
+          </div>
+          <div id="admin-bots-list" class="admin-card-grid">
+            <!-- Dynamically populated injected bots -->
+          </div>
+        </div>
+
+        <!-- 5. ROOM OVERRIDES & GLOBAL BROADCAST TAB -->
+        <div id="admin-tab-settings" class="admin-tab-pane">
+          <!-- Room Overrides Card -->
+          <div class="card">
+            <div class="card-title" style="color:var(--theme-primary);">⚡ Live Match Overrides</div>
+            <p style="font-size:0.8rem; color:var(--theme-text-muted); margin-bottom:14px;">
+              Instantly alter the operational parameters of an active game room without restarting.
+            </p>
+
+            <div class="input-group" style="margin-bottom:12px;">
+              <label class="input-label" for="admin-override-room-select">Target Operation</label>
+              <select id="admin-override-room-select" class="tactical-select">
+                <option value="GLOBAL">🌐 ALL ACTIVE ROOMS (Global Override)</option>
+              </select>
+            </div>
+
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-bottom:16px;">
+              <div class="input-group">
+                <label class="input-label" for="admin-override-boundary">Boundary Radius</label>
+                <select id="admin-override-boundary" class="tactical-select">
+                  <option value="500">500 meters (Urban / Campus)</option>
+                  <option value="1000">1,000 meters (1 km)</option>
+                  <option value="1500" selected>1,500 meters (1.5 km)</option>
+                  <option value="2000">2,000 meters (2 km)</option>
+                  <option value="3000">3,000 meters (3 km)</option>
+                  <option value="5000">5,000 meters (5 km)</option>
+                </select>
+              </div>
+
+              <div class="input-group">
+                <label class="input-label" for="admin-override-runner-ping">Runner Ping Interval</label>
+                <select id="admin-override-runner-ping" class="tactical-select">
+                  <option value="30">Every 30 seconds (High alert)</option>
+                  <option value="60">Every 1 minute</option>
+                  <option value="120">Every 2 minutes</option>
+                  <option value="300" selected>Every 5 minutes</option>
+                  <option value="600">Every 10 minutes</option>
+                </select>
+              </div>
+
+              <div class="input-group">
+                <label class="input-label" for="admin-override-seeker-mode">Seeker Tracking</label>
+                <select id="admin-override-seeker-mode" class="tactical-select">
+                  <option value="live" selected>Continuous Live Tracking (2s)</option>
+                  <option value="60">Periodic: Every 1 min</option>
+                  <option value="120">Periodic: Every 2 mins</option>
+                  <option value="300">Periodic: Every 5 mins</option>
+                </select>
+              </div>
+
+              <div class="input-group">
+                <label class="input-label" for="admin-override-tag-dist">Tag Catch Range</label>
+                <select id="admin-override-tag-dist" class="tactical-select">
+                  <option value="5">5 meters (Physical Touch)</option>
+                  <option value="10">10 meters</option>
+                  <option value="15" selected>15 meters (Standard)</option>
+                  <option value="25">25 meters</option>
+                  <option value="50">50 meters (Open Field)</option>
+                </select>
+              </div>
+
+              <div class="input-group">
+                <label class="input-label" for="admin-override-capture-mode">Post-Catch Mode</label>
+                <select id="admin-override-capture-mode" class="tactical-select">
+                  <option value="infection" selected>Infection (Converts to Seeker)</option>
+                  <option value="elimination">Elimination (Spectator)</option>
+                </select>
+              </div>
+            </div>
+
+            <button type="button" class="btn-warning" onclick="Admin.applyRoomOverrides()">
+              <span>⚡</span> PUSH OVERRIDE TO ROOM
+            </button>
+          </div>
+
+          <!-- Global Announcement Broadcast Card -->
+          <div class="card" style="margin-top:16px;">
+            <div class="card-title" style="color:var(--theme-accent, #ff4757);">📢 Global Network Broadcast</div>
+            <p style="font-size:0.8rem; color:var(--theme-text-muted); margin-bottom:12px;">
+              Dispatch high-priority administrator alert banner to all connected players across all operations.
+            </p>
+            <div class="input-group" style="margin-bottom:12px;">
+              <input type="text" id="admin-announcement-input" class="tactical-input" placeholder="e.g. Warning: Server reboot in 10 minutes..." maxlength="120">
+            </div>
+            <button type="button" class="btn-primary" style="background:#ff4757; border-color:#ff4757;" onclick="Admin.sendGlobalBroadcast()">
+              <span>📢</span> DISPATCH BROADCAST
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Runner Tag Verification Modal (Mobile Confirmation) -->
     <div id="modal-runner-tag-confirm" class="modal-backdrop">
       <div class="modal-content" style="max-width:440px; text-align:center; border: 2px solid var(--theme-seeker); box-shadow: 0 0 32px rgba(255, 71, 87, 0.45);">
@@ -835,6 +1079,38 @@
       </div>
     </div>
 
+    <!-- ====================================================================
+         MODAL: ADMIN AUTHENTICATION
+         ==================================================================== -->
+    <div id="modal-admin-auth" class="modal-backdrop">
+      <div class="modal-content admin-auth-modal" style="max-width:420px; text-align:center; border: 2px solid var(--theme-accent, #ff4757); box-shadow: 0 0 32px rgba(255, 71, 87, 0.4);">
+        <div style="font-size:3rem; margin-bottom:8px;">🔒</div>
+        <h2 style="color:var(--theme-accent, #ff4757); font-size:1.35rem; font-weight:900; letter-spacing:0.06em; margin-bottom:4px;">
+          ADMINISTRATOR ACCESS
+        </h2>
+        <p style="color:var(--theme-text-muted); font-size:0.82rem; margin-bottom:18px;">
+          Omni-Command console for real-time moderation, live God's Eye telemetry, and testing tools.
+        </p>
+
+        <div class="input-group" style="text-align:left; margin-bottom:14px;">
+          <label class="input-label" for="input-admin-pass">Enter Admin PIN or Password</label>
+          <input type="password" id="input-admin-pass" class="tactical-input" placeholder="e.g. 1337 or manhunt2026" autocomplete="off" style="text-align:center; font-size:1.1rem; letter-spacing:0.15em;">
+          <div id="admin-auth-error" style="display:none; color:#ff4757; font-size:0.8rem; margin-top:6px; font-weight:700; text-align:center;">
+            ❌ Access Denied: Invalid Credential
+          </div>
+        </div>
+
+        <div style="display:flex; gap:10px;">
+          <button type="button" id="btn-admin-auth-cancel" class="btn-secondary" style="flex:1;">
+            CANCEL
+          </button>
+          <button type="button" id="btn-admin-auth-submit" class="btn-primary" style="flex:1; background:#ff4757; border-color:#ff4757;">
+            <span>🔓</span> UNLOCK
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Device Platform & Installation Modal -->
     <div id="modal-device-select" class="modal-backdrop">
       <div class="modal-content" style="max-width:440px; text-align:center;">
@@ -978,6 +1254,7 @@
   <script src="js/simulation.js?v=2.4"></script>
   <script src="js/game.js?v=2.4"></script>
   <script src="js/ui.js?v=2.4"></script>
+  <script src="js/admin.js?v=2.4"></script>
 
   <!-- Main Entrypoint & Service Worker Registration with Auto-Update -->
   <script>

@@ -30,7 +30,11 @@ const DEFAULT_CONFIG = {
   mapTileProvider: 'voyager',     // 'voyager', 'osm', 'dark'
 
   // Development / Offline Simulation
-  simulationMode: false           // Test mode with simulated bots
+  simulationMode: false,          // Test mode with simulated bots
+
+  // Admin & Moderation Credentials
+  adminPin: '1337',               // Quick access numeric PIN
+  adminPassword: 'manhunt2026'    // Alpha-numeric administrative passphrase
 };
 
 const THEMES = [
