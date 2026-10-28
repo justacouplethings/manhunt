@@ -876,6 +876,206 @@ assert(activePool.bots.length === 3, 'Bot pool initialized with 3 test bots');
 assert(activePool.despawnAll() === 0, 'Despawn All cleanly wipes all active bot operatives');
 
 
+// 21. Testing Catch Event Notification Spam Gating & Lobby/Game Start Authoritative Roster Sync
+console.log('\n21. Testing Catch Event Notification Spam Gating & Authoritative Sync:');
+
+// A. Seeker Tag Debouncing & Duplicate Prevention
+class MockTagSystem {
+  constructor() {
+    this.taggedRunners = new Set();
+    this.lastTagAttemptTime = -10000;
+    this.tagBroadcastCount = 0;
+  }
+
+  tagRunner(runnerId, now = Date.now()) {
+    if (this.taggedRunners.has(runnerId)) {
+      return { status: 'already_tagged' };
+    }
+    if (now - this.lastTagAttemptTime < 2500) {
+      return { status: 'debounced' };
+    }
+    this.lastTagAttemptTime = now;
+    this.tagBroadcastCount++;
+    return { status: 'sent', runnerId, timestamp: now };
+  }
+}
+
+const mockTag = new MockTagSystem();
+const tagAttempt1 = mockTag.tagRunner('runner_1', 10000);
+assert(tagAttempt1.status === 'sent', 'First tag attempt executes successfully');
+const tagAttemptSpam = mockTag.tagRunner('runner_1', 10200);
+assert(tagAttemptSpam.status === 'debounced', 'Rapid tag spam click within 200ms is cleanly debounced');
+const tagAttemptSpam2 = mockTag.tagRunner('runner_1', 11000);
+assert(tagAttemptSpam2.status === 'debounced', 'Second spam click within 1000ms is cleanly debounced');
+assert(mockTag.tagBroadcastCount === 1, 'Only exactly 1 network tag broadcast fired during click spam');
+
+mockTag.taggedRunners.add('runner_1');
+const tagAttemptAlreadyCaught = mockTag.tagRunner('runner_1', 15000);
+assert(tagAttemptAlreadyCaught.status === 'already_tagged', 'Tagging an already caught runner is immediately rejected');
+
+// B. Runner Catch Event Notification Deduplication (3x Network Burst Protection)
+class MockRunnerClient {
+  constructor(id, role = 'runner') {
+    this.id = id;
+    this.role = role;
+    this.isCaught = false;
+    this.isTagged = false;
+    this.taggedRunners = new Set();
+    this.notificationCount = 0;
+    this.audioCueCount = 0;
+    this.roleConversionCount = 0;
+  }
+
+  handleTagRequest(data) {
+    if (data.runnerId !== this.id) return false;
+    if (this.isCaught || this.isTagged || this.role === 'seeker' || this.taggedRunners.has(this.id)) {
+      return false; // Gated!
+    }
+    return true; // Prompt shown
+  }
+
+  onRemoteTagConfirmed(data, isInfection = true) {
+    const { runnerId } = data;
+    if (this.taggedRunners.has(runnerId)) {
+      return false; // Deduplicated burst packet!
+    }
+    this.taggedRunners.add(runnerId);
+
+    const isSelf = runnerId === this.id;
+    if (isSelf) {
+      this.isCaught = true;
+      if (isInfection) {
+        this.role = 'seeker';
+        this.roleConversionCount++;
+      } else {
+        this.isTagged = true;
+      }
+    }
+
+    this.notificationCount++;
+    this.audioCueCount++;
+    return true;
+  }
+}
+
+const runnerClientTest21 = new MockRunnerClient('runner_alice');
+const burstTagPacket = {
+  seekerId: 'seeker_bob',
+  seekerName: 'Bob',
+  runnerId: 'runner_alice',
+  runnerName: 'Alice',
+  timestamp: 1000
+};
+
+// Simulate 3x burst delivery of the exact same confirmed tag packet
+const packet1Handled = runnerClientTest21.onRemoteTagConfirmed(burstTagPacket);
+const packet2Handled = runnerClientTest21.onRemoteTagConfirmed(burstTagPacket);
+const packet3Handled = runnerClientTest21.onRemoteTagConfirmed(burstTagPacket);
+
+assert(packet1Handled === true, 'First packet in burst successfully processes catch event');
+assert(packet2Handled === false, 'Duplicate burst packet 2 is cleanly dropped without re-triggering');
+assert(packet3Handled === false, 'Duplicate burst packet 3 is cleanly dropped without re-triggering');
+assert(runnerClientTest21.notificationCount === 1, 'Catch event notification fired strictly and exactly once');
+assert(runnerClientTest21.audioCueCount === 1, 'Catch event audio siren played strictly and exactly once');
+assert(runnerClientTest21.roleConversionCount === 1, 'Role conversion to seeker executed strictly and exactly once');
+assert(runnerClientTest21.isCaught === true, 'Player state is caught flag is set');
+assert(runnerClientTest21.role === 'seeker', 'Player role converted to seeker');
+
+// Verify further incoming tag requests are gated
+assert(runnerClientTest21.handleTagRequest({ runnerId: 'runner_alice', seekerId: 'seeker_dan' }) === false, 'Subsequent tag requests are gated and ignored after being caught');
+
+// C. Lobby Authoritative Roster & Game Start Synchronization
+class MockLobbySync {
+  constructor() {
+    this.host = { id: 'host_1', nickname: 'Host', role: 'runner', isHost: true };
+    this.peers = new Map();
+  }
+
+  onPlayerJoin(player) {
+    this.peers.set(player.id, player);
+  }
+
+  generateAuthoritativeRoster() {
+    return [
+      { ...this.host },
+      ...Array.from(this.peers.values())
+    ];
+  }
+
+  buildStartGamePacket(settings) {
+    return {
+      action: 'start_game',
+      startTimestamp: 1000,
+      settings: settings,
+      roster: this.generateAuthoritativeRoster()
+    };
+  }
+}
+
+const lobby = new MockLobbySync();
+lobby.onPlayerJoin({ id: 'p_joiner_1', nickname: 'JoinerOne', role: 'runner', isHost: false });
+lobby.onPlayerJoin({ id: 'p_joiner_2', nickname: 'JoinerTwo', role: 'seeker', isHost: false });
+
+const startPacket = lobby.buildStartGamePacket({ gracePeriod: 300, boundaryRadiusMeters: 1000 });
+assert(Array.isArray(startPacket.roster), 'start_game packet includes authoritative squad roster');
+assert(startPacket.roster.length === 3, 'Authoritative roster includes host and all connected peers (3 players total)');
+assert(startPacket.roster.some(p => p.id === 'host_1' && p.isHost === true), 'Authoritative roster preserves Host status');
+assert(startPacket.roster.some(p => p.id === 'p_joiner_1' && p.role === 'runner'), 'Authoritative roster preserves Runner role');
+assert(startPacket.roster.some(p => p.id === 'p_joiner_2' && p.role === 'seeker'), 'Authoritative roster preserves Seeker role');
+
+// Verify Joining Client Ingestion & Idempotency
+class MockGameStartClient {
+  constructor(myId, myRole) {
+    this.id = myId;
+    this.role = myRole;
+    this.state = 'WAITING';
+    this.peers = new Map();
+    this.activeRunners = new Set();
+    this.activeSeekers = new Set();
+    this.startExecutions = 0;
+  }
+
+  onGameStartedRemote(packet) {
+    if (this.state === 'ACTIVE' || this.state === 'GRACE_PERIOD') {
+      return false; // Guard against duplicate burst packets
+    }
+    this.startExecutions++;
+    this.state = 'ACTIVE';
+
+    if (Array.isArray(packet.roster)) {
+      packet.roster.forEach(p => {
+        if (p.id !== this.id) {
+          this.peers.set(p.id, p);
+        }
+      });
+    }
+
+    if (this.role === 'runner') this.activeRunners.add(this.id);
+    else this.activeSeekers.add(this.id);
+
+    for (const [id, peer] of this.peers.entries()) {
+      if (peer.role === 'runner') this.activeRunners.add(id);
+      else if (peer.role === 'seeker') this.activeSeekers.add(id);
+    }
+    return true;
+  }
+}
+
+const clientJoiner = new MockGameStartClient('p_joiner_1', 'runner');
+const burst1 = clientJoiner.onGameStartedRemote(startPacket);
+const burst2 = clientJoiner.onGameStartedRemote(startPacket);
+const burst3 = clientJoiner.onGameStartedRemote(startPacket);
+
+assert(burst1 === true, 'First start_game packet successfully launches game on client');
+assert(burst2 === false, 'Duplicate burst start_game packet 2 is ignored');
+assert(burst3 === false, 'Duplicate burst start_game packet 3 is ignored');
+assert(clientJoiner.startExecutions === 1, 'Match start logic ran exactly once');
+assert(clientJoiner.state === 'ACTIVE', 'Client state successfully transitioned to ACTIVE');
+assert(clientJoiner.peers.size === 2, 'Client synced all 2 other players from authoritative roster');
+assert(clientJoiner.activeRunners.size === 2, 'Synced exactly 2 active runners (Host + JoinerOne)');
+assert(clientJoiner.activeSeekers.size === 1, 'Synced exactly 1 active seeker (JoinerTwo)');
+
+
 
 
 

@@ -20,6 +20,7 @@ class ManhuntGame {
 
     // Player state
     this.isTagged = false;
+    this.isCaught = false; // State flag to prevent catch notification/conversion spam
     this.isPaused = false;
     this.taggedRunners = new Set();
     this.activeRunners = new Set();
@@ -30,6 +31,9 @@ class ManhuntGame {
     this.lockedTargetId = null;
     this.seekerPingCountdown = 0;
     this.pendingTagRequest = null;
+    this.lastTagAttemptTime = 0;
+    this.currentMatchConfig = null;
+    this.lobbySyncInterval = null;
 
     // Telemetry cache
     this.lastKnownPositions = new Map(); // id -> { lat, lng, role, timestamp, nickname }
@@ -57,8 +61,15 @@ class ManhuntGame {
       clearInterval(this.gameLoopInterval);
       this.gameLoopInterval = null;
     }
+    if (this.lobbySyncInterval) {
+      clearInterval(this.lobbySyncInterval);
+      this.lobbySyncInterval = null;
+    }
     this.isPaused = false;
     this.isTagged = false;
+    this.isCaught = false;
+    this.lastTagAttemptTime = 0;
+    this.currentMatchConfig = null;
     this.isOutOfBounds = false;
     this.boundaryCenter = null;
     this.boundaryRadiusMeters = Config.settings.boundaryRadiusMeters || 1500;
@@ -136,6 +147,10 @@ class ManhuntGame {
     });
 
     Network.on('game_started', (data) => {
+      this.onGameStartedRemote(data);
+    });
+
+    Network.on('start_game', (data) => {
       this.onGameStartedRemote(data);
     });
 
@@ -219,6 +234,17 @@ class ManhuntGame {
     UI.setRoomCodeDisplay(this.roomCode);
     this.updatePlayerRoster();
 
+    // Start lobby synchronization interval
+    if (this.lobbySyncInterval) clearInterval(this.lobbySyncInterval);
+    this.lobbySyncInterval = setInterval(() => {
+      if (this.state === 'WAITING' && this.roomCode) {
+        Network.sendPresence();
+        if (this.isHost) {
+          Network.emitHostBeacon();
+        }
+      }
+    }, 1500);
+
     // Start GPS tracking
     Geo.startTracking();
   }
@@ -238,6 +264,14 @@ class ManhuntGame {
     UI.showScreen('screen-waiting');
     UI.setRoomCodeDisplay(this.roomCode);
     this.updatePlayerRoster();
+
+    // Start lobby synchronization interval
+    if (this.lobbySyncInterval) clearInterval(this.lobbySyncInterval);
+    this.lobbySyncInterval = setInterval(() => {
+      if (this.state === 'WAITING' && this.roomCode) {
+        Network.sendPresence();
+      }
+    }, 1500);
 
     Geo.startTracking();
   }
@@ -312,8 +346,9 @@ class ManhuntGame {
       Config.settings.boundaryRadiusMeters = data.boundaryRadiusMeters;
     }
 
-    if (this.state === 'WAITING' && data.peers && Array.isArray(data.peers)) {
-      data.peers.forEach(p => {
+    const roster = data.roster || data.peers;
+    if (this.state === 'WAITING' && roster && Array.isArray(roster)) {
+      roster.forEach(p => {
         if (p.id !== Network.playerId) {
           Network.peers.set(p.id, { ...(Network.peers.get(p.id) || {}), ...p });
         }
@@ -324,7 +359,7 @@ class ManhuntGame {
     // Auto catch-up into ongoing match if client was waiting
     if (this.state === 'WAITING' && (data.state === 'ACTIVE' || data.state === 'GRACE_PERIOD')) {
       console.log('Synchronizing into live operation via host beacon...');
-      this.onGameStartedRemote({
+      const matchConfig = data.matchConfig || {
         seekerTrackingMode: data.settings ? data.settings.seekerTrackingMode : Config.settings.seekerTrackingMode,
         gracePeriod: data.settings ? data.settings.gracePeriod : Config.settings.gracePeriod,
         gameDuration: data.settings ? data.settings.gameDuration : Config.settings.gameDuration,
@@ -333,8 +368,11 @@ class ManhuntGame {
         boundaryCenter: data.boundaryCenter || null,
         runnerCaptureMode: data.settings ? data.settings.runnerCaptureMode : Config.settings.runnerCaptureMode,
         tagDistanceMeters: data.settings ? data.settings.tagDistanceMeters : Config.settings.tagDistanceMeters,
-        startTimestamp: data.matchStartTimestamp || Date.now()
-      });
+        requireTagConfirmation: data.settings ? data.settings.requireTagConfirmation : Config.settings.requireTagConfirmation,
+        startTimestamp: data.matchStartTimestamp || Date.now(),
+        roster: roster || []
+      };
+      this.onGameStartedRemote(matchConfig);
     }
 
     // Auto catch-up if operation concluded on host
@@ -393,6 +431,22 @@ class ManhuntGame {
     this.boundaryRadiusMeters = boundaryRadius !== undefined ? boundaryRadius : Config.settings.boundaryRadiusMeters;
     Config.settings.boundaryRadiusMeters = this.boundaryRadiusMeters;
 
+    // Build authoritative squad roster at launch time
+    const roster = [
+      {
+        id: Network.playerId,
+        nickname: this.nickname,
+        role: this.role,
+        isHost: true
+      },
+      ...Array.from(Network.peers.values()).map(p => ({
+        id: p.id,
+        nickname: p.nickname,
+        role: p.role,
+        isHost: !!p.isHost
+      }))
+    ];
+
     const matchConfig = {
       seekerTrackingMode: Config.settings.seekerTrackingMode,
       gracePeriod: Config.settings.gracePeriod,
@@ -403,14 +457,31 @@ class ManhuntGame {
       runnerCaptureMode: Config.settings.runnerCaptureMode,
       tagDistanceMeters: Config.settings.tagDistanceMeters,
       requireTagConfirmation: Config.settings.requireTagConfirmation,
-      startTimestamp: Date.now()
+      startTimestamp: Date.now(),
+      roster: roster
     };
+    this.currentMatchConfig = matchConfig;
+
+    if (this.lobbySyncInterval) {
+      clearInterval(this.lobbySyncInterval);
+      this.lobbySyncInterval = null;
+    }
 
     Network.broadcast('start_game', matchConfig, true);
+    Network.emitHostBeacon();
     this.onGameStartedRemote(matchConfig);
   }
 
   onGameStartedRemote(data) {
+    if (this.state === 'ACTIVE' || this.state === 'GRACE_PERIOD') {
+      return; // Deduplicate start_game burst retransmissions
+    }
+
+    if (this.lobbySyncInterval) {
+      clearInterval(this.lobbySyncInterval);
+      this.lobbySyncInterval = null;
+    }
+
     if (data.seekerTrackingMode) Config.settings.seekerTrackingMode = data.seekerTrackingMode;
     if (data.gracePeriod !== undefined) Config.settings.gracePeriod = data.gracePeriod;
     if (data.gameDuration !== undefined) Config.settings.gameDuration = data.gameDuration;
@@ -426,17 +497,28 @@ class ManhuntGame {
     if (data.tagDistanceMeters !== undefined) Config.settings.tagDistanceMeters = data.tagDistanceMeters;
     if (data.requireTagConfirmation !== undefined) Config.settings.requireTagConfirmation = data.requireTagConfirmation;
 
-    this.matchStartTimestamp = data.startTimestamp;
+    // Ingest authoritative roster into peers if present
+    const roster = data.roster || data.peers;
+    if (Array.isArray(roster)) {
+      roster.forEach(p => {
+        if (p.id !== Network.playerId) {
+          Network.peers.set(p.id, { ...(Network.peers.get(p.id) || {}), ...p });
+        }
+      });
+    }
+
+    this.matchStartTimestamp = data.startTimestamp || Date.now();
     this.gracePeriodRemaining = Config.settings.gracePeriod;
     this.gameTimeRemaining = Config.settings.gameDuration;
     this.runnerPingCountdown = Config.settings.runnerPingInterval;
     this.seekerPingCountdown = Config.settings.seekerTrackingMode === 'live' ? 0 : parseInt(Config.settings.seekerTrackingMode, 10);
     this.isTagged = false;
+    this.isCaught = false;
     this.isPaused = false;
     this.isOutOfBounds = false;
     this.taggedRunners.clear();
 
-    // Populate active and initial participant lists
+    // Populate active and initial participant lists from authoritative roster
     this.activeRunners.clear();
     this.activeSeekers.clear();
     this.initialRunners.clear();
@@ -1005,6 +1087,17 @@ class ManhuntGame {
   tagRunner(targetPlayerId, runnerNickname) {
     if (this.role !== 'seeker') return;
 
+    if (this.taggedRunners.has(targetPlayerId)) {
+      UI.showToast(`${runnerNickname} has already been caught!`, 'info');
+      return;
+    }
+
+    const now = Date.now();
+    if (now - this.lastTagAttemptTime < 2500) {
+      return; // Debounce rapid tag clicks
+    }
+    this.lastTagAttemptTime = now;
+
     const tagDistance = this.nearestOpponentDistance ? Math.round(this.nearestOpponentDistance) : Config.settings.tagDistanceMeters;
     const tagData = {
       seekerId: Network.playerId,
@@ -1031,6 +1124,16 @@ class ManhuntGame {
   handleTagRequest(data) {
     if (data.runnerId !== Network.playerId) return;
 
+    // Gate tag event: if already caught, or role already converted, or already tagged, ignore
+    if (this.isCaught || this.isTagged || this.role === 'seeker' || this.taggedRunners.has(Network.playerId)) {
+      return;
+    }
+
+    // Debounce duplicate prompts for identical tag within 5 seconds
+    if (this.pendingTagRequest && this.pendingTagRequest.seekerId === data.seekerId && (Date.now() - (this.pendingTagRequest.timestamp || 0) < 5000)) {
+      return;
+    }
+
     this.pendingTagRequest = data;
     if (Config.settings.requireTagConfirmation) {
       UI.notifyCriticalEvent('TAG VERIFICATION REQUIRED', `🚨 Seeker ${data.seekerName} claims to have tagged you! Confirm on phone.`, 'danger');
@@ -1046,6 +1149,9 @@ class ManhuntGame {
    */
   confirmCaught() {
     if (!this.pendingTagRequest) return;
+    if (this.isCaught || this.taggedRunners.has(Network.playerId)) return;
+    this.isCaught = true;
+
     const req = this.pendingTagRequest;
     this.pendingTagRequest = null;
     UI.closeModal('modal-runner-tag-confirm');
@@ -1084,6 +1190,8 @@ class ManhuntGame {
    */
   forceTagRunnerByHost(targetPlayerId, runnerNickname) {
     if (!this.isHost) return;
+    if (this.taggedRunners.has(targetPlayerId)) return;
+
     const tagData = {
       seekerId: Network.playerId,
       seekerName: this.nickname + ' (Host Force)',
@@ -1103,11 +1211,24 @@ class ManhuntGame {
    */
   onRemoteTagConfirmed(data) {
     const { seekerName, runnerId, runnerName } = data;
+
+    // Prevent duplicate processing & notification spam from burst retransmissions
+    if (this.taggedRunners.has(runnerId)) {
+      return;
+    }
     this.taggedRunners.add(runnerId);
+
+    const isSelf = runnerId === Network.playerId;
+    if (isSelf) {
+      this.isCaught = true;
+      if (this.pendingTagRequest) {
+        this.pendingTagRequest = null;
+        UI.closeModal('modal-runner-tag-confirm');
+      }
+    }
 
     UI.playAudioCue('tag');
 
-    const isSelf = runnerId === Network.playerId;
     const isInfection = Config.settings.runnerCaptureMode === 'infection';
 
     if (isSelf) {

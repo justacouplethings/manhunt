@@ -140,29 +140,44 @@ class NetworkEngine {
 
           // Wildcard subscription for all room messages
           const topic = `manhunt/room/${this.roomCode}/#`;
-          this.client.subscribe(topic, { qos: 0 });
+          this.client.subscribe(topic, {
+            qos: 0,
+            onSuccess: () => {
+              console.log(`Subscribed to topic ${topic}`);
+              this.emit('connected', { mode: 'cloud', broker: broker.host });
+              this.startHeartbeat();
 
-          this.emit('connected', { mode: 'cloud', broker: broker.host });
-          this.startHeartbeat();
-
-          // Handshake initiation
-          if (this.isHost) {
-            this.startHostBeacon();
-            this.sendPresence();
-          } else {
-            this.startJoinHandshake();
-          }
+              // Handshake initiation once subscription is confirmed
+              if (this.isHost) {
+                this.startHostBeacon();
+                this.sendPresence();
+              } else {
+                this.startJoinHandshake();
+              }
+            },
+            onFailure: (subErr) => {
+              console.warn('Subscription warning, proceeding anyway:', subErr);
+              this.emit('connected', { mode: 'cloud', broker: broker.host });
+              this.startHeartbeat();
+              if (this.isHost) {
+                this.startHostBeacon();
+                this.sendPresence();
+              } else {
+                this.startJoinHandshake();
+              }
+            }
+          });
         },
         onFailure: (err) => {
           console.warn(`MQTT Connect failed on ${broker.host}:`, err);
           this.reconnectAttempts++;
-          if (this.reconnectAttempts >= 3) {
+          if (this.reconnectAttempts >= 6) {
             this.currentBrokerIdx = (this.currentBrokerIdx + 1) % this.brokers.length;
             this.reconnectAttempts = 0;
           }
           setTimeout(() => {
             if (this.roomCode) this.connectMqtt();
-          }, 2500);
+          }, 2000);
         }
       };
 
@@ -185,21 +200,44 @@ class NetworkEngine {
       if (this.roomCode && this.isHost) {
         this.emitHostBeacon();
       }
-    }, 2500);
+    }, 2000);
   }
 
   emitHostBeacon() {
     if (!this.isHost || !this.roomCode) return;
+
+    // Build the complete authoritative roster including the host and all known peers
+    const roster = [
+      {
+        id: this.playerId,
+        nickname: this.nickname,
+        role: this.role,
+        isHost: true,
+        lastSeen: Date.now()
+      },
+      ...Array.from(this.peers.values()).map(p => ({
+        id: p.id,
+        nickname: p.nickname,
+        role: p.role,
+        isHost: false,
+        isTagged: !!p.isTagged,
+        lastSeen: p.lastSeen
+      }))
+    ];
+
     this.broadcast('room_state', {
       hostId: this.playerId,
       hostName: this.nickname,
-      state: Game ? Game.state : 'WAITING',
-      matchStartTimestamp: Game ? Game.matchStartTimestamp : 0,
-      boundaryCenter: Game ? Game.boundaryCenter : null,
+      hostRole: this.role,
+      state: typeof Game !== 'undefined' ? Game.state : 'WAITING',
+      matchStartTimestamp: typeof Game !== 'undefined' ? Game.matchStartTimestamp : 0,
+      boundaryCenter: typeof Game !== 'undefined' ? Game.boundaryCenter : null,
       boundaryRadiusMeters: typeof Config !== 'undefined' ? Config.settings.boundaryRadiusMeters : 1500,
       settings: typeof Config !== 'undefined' ? Config.settings : {},
-      peers: Array.from(this.peers.values()),
-      lastGameOverData: Game ? Game.lastGameOverData : null
+      peers: roster,
+      roster: roster,
+      matchConfig: typeof Game !== 'undefined' && Game.currentMatchConfig ? Game.currentMatchConfig : null,
+      lastGameOverData: typeof Game !== 'undefined' ? Game.lastGameOverData : null
     });
   }
 
@@ -209,21 +247,27 @@ class NetworkEngine {
   startJoinHandshake() {
     if (this.joinRetryTimer) clearInterval(this.joinRetryTimer);
     let attempts = 0;
-    this.sendPresence();
 
-    this.joinRetryTimer = setInterval(() => {
-      attempts++;
-      if (!this.roomCode || attempts > 15) {
-        clearInterval(this.joinRetryTimer);
-        this.joinRetryTimer = null;
-        return;
-      }
+    const sendJoin = () => {
       this.broadcast('join_request', {
         playerId: this.playerId,
         nickname: this.nickname,
         role: this.role
-      });
-    }, 2000);
+      }, true);
+      this.sendPresence();
+    };
+
+    sendJoin();
+
+    this.joinRetryTimer = setInterval(() => {
+      attempts++;
+      if (!this.roomCode || attempts > 25) {
+        clearInterval(this.joinRetryTimer);
+        this.joinRetryTimer = null;
+        return;
+      }
+      sendJoin();
+    }, 1500);
   }
 
   sendPresence() {
@@ -243,7 +287,7 @@ class NetworkEngine {
         this.sendPresence();
         this.pruneStalePeers();
       }
-    }, 4000);
+    }, 3500);
   }
 
   pruneStalePeers() {
@@ -294,11 +338,12 @@ class NetworkEngine {
 
     sendSingle();
 
-    // Critical actions retransmit twice with short delays to eliminate mobile cellular packet loss
-    const criticalActions = ['start_game', 'match_over', 'game_over', 'host_command', 'admin_command', 'role_assigned', 'tag_request', 'tag_confirmed', 'tag_disputed', 'settings_sync'];
+    // Critical actions retransmit with short delays to eliminate mobile cellular packet loss
+    const criticalActions = ['start_game', 'match_over', 'game_over', 'host_command', 'admin_command', 'role_assigned', 'tag_request', 'tag_confirmed', 'tag_disputed', 'settings_sync', 'join_request'];
     if (isCritical || criticalActions.includes(action)) {
-      setTimeout(sendSingle, 250);
-      setTimeout(sendSingle, 600);
+      setTimeout(sendSingle, 150);
+      setTimeout(sendSingle, 350);
+      setTimeout(sendSingle, 700);
     }
   }
 
@@ -353,7 +398,12 @@ class NetworkEngine {
       };
       const isNew = !this.peers.has(senderId);
       this.peers.set(senderId, { ...(this.peers.get(senderId) || {}), ...peerData });
-      if (isNew) this.emit('player_joined', peerData);
+      
+      if (isNew) {
+        this.emit('player_joined', peerData);
+      } else {
+        this.emit('player_updated', peerData);
+      }
 
       // Reply with presence and full room state if host
       this.sendPresence();
@@ -361,6 +411,35 @@ class NetworkEngine {
         this.emitHostBeacon();
       }
     } else if (action === 'room_state') {
+      if (data) {
+        // Ensure host is registered in peers on joining clients
+        if (data.hostId && data.hostId !== this.playerId) {
+          const hostPeer = {
+            id: data.hostId,
+            nickname: data.hostName || 'Host',
+            role: data.hostRole || (this.peers.get(data.hostId)?.role) || 'runner',
+            isHost: true,
+            lastSeen: Date.now()
+          };
+          const isNewHost = !this.peers.has(data.hostId);
+          this.peers.set(data.hostId, { ...(this.peers.get(data.hostId) || {}), ...hostPeer });
+          if (isNewHost) this.emit('player_joined', hostPeer);
+          else this.emit('player_updated', hostPeer);
+        }
+
+        // Ingest full roster/peers array from host beacon
+        const roster = data.roster || data.peers;
+        if (Array.isArray(roster)) {
+          roster.forEach(p => {
+            if (p.id !== this.playerId) {
+              const isNew = !this.peers.has(p.id);
+              this.peers.set(p.id, { ...(this.peers.get(p.id) || {}), ...p, lastSeen: Date.now() });
+              if (isNew) this.emit('player_joined', p);
+              else this.emit('player_updated', p);
+            }
+          });
+        }
+      }
       this.emit('room_state', data);
     } else if (action === 'role_assigned') {
       this.emit('role_assigned', data);
@@ -381,8 +460,18 @@ class NetworkEngine {
       peer.lastSeen = Date.now();
       this.peers.set(senderId, peer);
       this.emit('telemetry', { playerId: senderId, ...data });
-    } else if (action === 'start_game') {
+    } else if (action === 'start_game' || action === 'game_started') {
+      // Ingest authoritative roster if provided in start packet
+      const roster = data.roster || data.peers;
+      if (Array.isArray(roster)) {
+        roster.forEach(p => {
+          if (p.id !== this.playerId) {
+            this.peers.set(p.id, { ...(this.peers.get(p.id) || {}), ...p, lastSeen: Date.now() });
+          }
+        });
+      }
       this.emit('game_started', data);
+      this.emit('start_game', data);
     } else if (action === 'host_command') {
       this.emit('host_command', data);
     } else if (action === 'admin_command') {
