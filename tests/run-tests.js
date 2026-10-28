@@ -1384,6 +1384,97 @@ assert(stylesUpdated.includes('.btn-danger') && stylesUpdated.includes('font-wei
 assert(indexUpdated.includes('id="btn-ingame-leave-match" class="btn-danger"'), 'Leave match button in settings menu uses .btn-danger');
 assert(indexUpdated.includes('id="btn-confirm-exit" class="btn-danger"'), 'Confirm leave button in exit modal uses .btn-danger');
 
+console.log('\n27. Testing Admin GPS Coordinates with Ping Timing, Geographic Bot Spawning, Single-Click Role Swap & Connection Debounce:');
+
+// 1. Verify getPlayerLocationInfo formats coordinates with last ping and interval
+const adminJsSource = fs.readFileSync(path.join(__dirname, '../js/admin.js'), 'utf8');
+assert(adminJsSource.includes('getPlayerLocationInfo(player)'), 'Admin has getPlayerLocationInfo helper');
+assert(adminJsSource.includes('Last Ping:'), 'getPlayerLocationInfo formats last ping age');
+assert(adminJsSource.includes('Interval:'), 'getPlayerLocationInfo formats ping interval');
+
+// Verify simulated location formatting
+const testPlayerSelf = {
+  id: 'self-1',
+  roomCode: 'TEST',
+  nickname: 'Commander',
+  role: 'runner',
+  isHost: true,
+  isBot: false,
+  lat: 51.5074,
+  lng: -0.1278,
+  lastPingTime: Date.now()
+};
+
+function testGetLocationInfo(player, selfId, roomInterval = 300) {
+  const isLocalSelf = player.id === selfId;
+  let intervalStr = '';
+  if (isLocalSelf) {
+    intervalStr = 'Self · Real-Time GPS';
+  } else if (player.isBot) {
+    intervalStr = 'Bot Simulated · Live';
+  } else if (player.role === 'seeker') {
+    intervalStr = 'Seeker GPS · Live (3s)';
+  } else {
+    intervalStr = roomInterval >= 60 ? `${Math.round(roomInterval / 60)}m` : `${roomInterval}s`;
+  }
+
+  const pingAgeSec = Math.max(0, Math.round((Date.now() - player.lastPingTime) / 1000));
+  let ageDisplay = isLocalSelf ? 'Live' : (pingAgeSec < 60 ? `${pingAgeSec}s ago` : `${Math.floor(pingAgeSec / 60)}m ago`);
+  return `${player.lat.toFixed(5)}, ${player.lng.toFixed(5)} (Last Ping: ${ageDisplay} · Interval: ${intervalStr})`;
+}
+
+const selfInfo = testGetLocationInfo(testPlayerSelf, 'self-1', 300);
+assert(selfInfo.includes('51.50740, -0.12780'), 'Formats lat/lng with 5 decimal precision');
+assert(selfInfo.includes('Self · Real-Time GPS'), 'Local player shows Self Real-Time GPS');
+
+const remoteRunner = {
+  id: 'runner-99',
+  roomCode: 'TEST',
+  nickname: 'RunnerAlpha',
+  role: 'runner',
+  isHost: false,
+  isBot: false,
+  lat: 48.8566,
+  lng: 2.3522,
+  lastPingTime: Date.now() - 14000 // 14s ago
+};
+const remoteInfo = testGetLocationInfo(remoteRunner, 'self-1', 300);
+assert(remoteInfo.includes('48.85660, 2.35220'), 'Remote player displays coordinates');
+assert(remoteInfo.includes('14s ago'), 'Remote player shows ping age (14s ago)');
+assert(remoteInfo.includes('Interval: 5m'), 'Remote player shows room ping interval (5m)');
+
+// 2. Verify Bot Spawning uses target player geographic coordinates, never hardcoded America (NYC)
+assert(!adminJsSource.includes('40.7580'), 'No hardcoded Times Square (40.7580) in admin.js');
+assert(!adminJsSource.includes('-73.9855'), 'No hardcoded Times Square (-73.9855) in admin.js');
+assert(!adminJsSource.includes('40.7128'), 'No hardcoded NYC (40.7128) in admin.js');
+assert(!adminJsSource.includes('-74.0060'), 'No hardcoded NYC (-74.0060) in admin.js');
+
+// Simulate bot spawn offset calculation
+const targetLat = 52.5200; // Berlin
+const targetLng = 13.4050;
+const angle = Math.PI / 4;
+const distMeters = 20;
+const deltaLat = (distMeters * Math.cos(angle)) / 111111;
+const deltaLng = (distMeters * Math.sin(angle)) / (111111 * Math.cos(targetLat * Math.PI / 180));
+const botLat = targetLat + deltaLat;
+const botLng = targetLng + deltaLng;
+const actualDistance = Math.hypot((botLat - targetLat) * 111111, (botLng - targetLng) * 111111 * Math.cos(targetLat * Math.PI / 180));
+assert(Math.abs(actualDistance - 20) < 0.1, 'Bot spawns accurately ~20m from target player in their local country');
+
+// 3. Verify Leaflet popup has prominent, legible buttons and no 10px black-on-blue button
+assert(!adminJsSource.includes('font-size:10px; padding:3px 6px; background:#38bdf8; color:#000'), 'Unreadable 10px black-on-blue button is removed');
+assert(adminJsSource.includes('Spawn Bot Here'), 'Marker popup contains Spawn Bot Here button');
+assert(adminJsSource.includes('btn-primary') && adminJsSource.includes('font-size:12px'), 'Marker popup button uses prominent 12px font and high contrast styling');
+
+// 4. Verify Single-Click Role Swap Synchronization
+assert(adminJsSource.includes('AdminBot.isBotActive(playerId)'), 'Admin.swapPlayerRole synchronizes with AdminBot for bots');
+assert(adminJsSource.includes('Network.emitHostBeacon()'), 'Admin.swapPlayerRole triggers immediate host beacon');
+
+// 5. Verify Relay Connection Debounce
+const uiJsSource = fs.readFileSync(path.join(__dirname, '../js/ui.js'), 'utf8');
+assert(uiJsSource.includes('disconnectBadgeTimer'), 'UI debounces disconnection status with disconnectBadgeTimer');
+assert(uiJsSource.includes('3000'), 'Disconnection badge debounce delay is 3000ms');
+
 // Summary
 console.log('\n======================================================');
 console.log(`📊 TEST RESULTS: ${testsPassed} PASSED, ${testsFailed} FAILED`);

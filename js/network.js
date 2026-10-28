@@ -121,7 +121,7 @@ class NetworkEngine {
           }
           setTimeout(() => {
             if (this.roomCode) this.connectMqtt();
-          }, 2000);
+          }, 800);
         }
       };
 
@@ -137,7 +137,7 @@ class NetworkEngine {
       const options = {
         useSSL: true,
         timeout: 6,
-        keepAliveInterval: 25,
+        keepAliveInterval: 45,
         cleanSession: true,
         onSuccess: () => {
           this.isConnected = true;
@@ -216,23 +216,43 @@ class NetworkEngine {
   emitHostBeacon() {
     if (!this.isHost || !this.roomCode) return;
 
-    // Build the complete authoritative roster including the host and all known peers
+    const selfCoords = (typeof Game !== 'undefined' && Game.lastSelfCoords) ||
+                       (typeof Geo !== 'undefined' && Geo.currentPosition) || null;
+
+    // Build the complete authoritative roster including the host and all known peers with coordinates
     const roster = [
       {
         id: this.playerId,
         nickname: this.nickname,
         role: this.role,
         isHost: true,
+        lat: selfCoords ? selfCoords.lat : null,
+        lng: selfCoords ? selfCoords.lng : null,
+        lastPingTime: Date.now(),
         lastSeen: Date.now()
       },
-      ...Array.from(this.peers.values()).map(p => ({
-        id: p.id,
-        nickname: p.nickname,
-        role: p.role,
-        isHost: false,
-        isTagged: !!p.isTagged,
-        lastSeen: p.lastSeen
-      }))
+      ...Array.from(this.peers.values()).map(p => {
+        const pLat = p.lat != null ? p.lat :
+                     ((typeof Game !== 'undefined' && Game.trueLivePositions && Game.trueLivePositions.get(p.id)?.lat) ||
+                      (typeof Game !== 'undefined' && Game.lastKnownPositions && Game.lastKnownPositions.get(p.id)?.lat) || null);
+        const pLng = p.lng != null ? p.lng :
+                     ((typeof Game !== 'undefined' && Game.trueLivePositions && Game.trueLivePositions.get(p.id)?.lng) ||
+                      (typeof Game !== 'undefined' && Game.lastKnownPositions && Game.lastKnownPositions.get(p.id)?.lng) || null);
+        const pPing = p.lastPingTime ||
+                      ((typeof Game !== 'undefined' && Game.lastKnownPositions && Game.lastKnownPositions.get(p.id)?.timestamp) ||
+                       (typeof Game !== 'undefined' && Game.trueLivePositions && Game.trueLivePositions.get(p.id)?.timestamp) || p.lastSeen);
+        return {
+          id: p.id,
+          nickname: p.nickname,
+          role: p.role,
+          isHost: false,
+          isTagged: !!p.isTagged,
+          lat: pLat,
+          lng: pLng,
+          lastPingTime: pPing,
+          lastSeen: p.lastSeen
+        };
+      })
     ];
 
     this.broadcast('room_state', {
@@ -281,11 +301,15 @@ class NetworkEngine {
   }
 
   sendPresence() {
+    const selfCoords = (typeof Game !== 'undefined' && Game.lastSelfCoords) ||
+                       (typeof Geo !== 'undefined' && Geo.currentPosition) || null;
     this.broadcast('presence', {
       playerId: this.playerId,
       nickname: this.nickname,
       role: this.role,
       isHost: this.isHost,
+      lat: selfCoords ? selfCoords.lat : null,
+      lng: selfCoords ? selfCoords.lng : null,
       timestamp: Date.now()
     });
   }
@@ -376,17 +400,22 @@ class NetworkEngine {
 
     if (action === 'presence') {
       const isNew = !this.peers.has(senderId);
+      const existing = this.peers.get(senderId) || {};
       const peerData = {
+        ...existing,
         id: senderId,
-        nickname: data.nickname || 'Unknown',
-        role: data.role || 'runner',
+        nickname: data.nickname || existing.nickname || 'Unknown',
+        role: data.role || existing.role || 'runner',
         isHost: !!data.isHost,
         lastSeen: Date.now(),
-        lat: data.lat || null,
-        lng: data.lng || null,
         isTagged: !!data.isTagged
       };
-      this.peers.set(senderId, { ...(this.peers.get(senderId) || {}), ...peerData });
+      if (data.lat != null && data.lng != null) {
+        peerData.lat = Number(data.lat);
+        peerData.lng = Number(data.lng);
+        peerData.lastPingTime = data.timestamp || Date.now();
+      }
+      this.peers.set(senderId, peerData);
 
       if (isNew) {
         this.emit('player_joined', peerData);
@@ -399,15 +428,22 @@ class NetworkEngine {
         this.emit('player_updated', peerData);
       }
     } else if (action === 'join_request') {
+      const existing = this.peers.get(senderId) || {};
       const peerData = {
+        ...existing,
         id: senderId,
-        nickname: data.nickname || 'Unknown',
-        role: data.role || 'runner',
+        nickname: data.nickname || existing.nickname || 'Unknown',
+        role: data.role || existing.role || 'runner',
         isHost: false,
         lastSeen: Date.now()
       };
+      if (data.lat != null && data.lng != null) {
+        peerData.lat = Number(data.lat);
+        peerData.lng = Number(data.lng);
+        peerData.lastPingTime = data.timestamp || Date.now();
+      }
       const isNew = !this.peers.has(senderId);
-      this.peers.set(senderId, { ...(this.peers.get(senderId) || {}), ...peerData });
+      this.peers.set(senderId, peerData);
       
       if (isNew) {
         this.emit('player_joined', peerData);
@@ -424,15 +460,21 @@ class NetworkEngine {
       if (data) {
         // Ensure host is registered in peers on joining clients
         if (data.hostId && data.hostId !== this.playerId) {
+          const existingHost = this.peers.get(data.hostId) || {};
           const hostPeer = {
+            ...existingHost,
             id: data.hostId,
-            nickname: data.hostName || 'Host',
-            role: data.hostRole || (this.peers.get(data.hostId)?.role) || 'runner',
+            nickname: data.hostName || existingHost.nickname || 'Host',
+            role: data.hostRole || existingHost.role || 'runner',
             isHost: true,
             lastSeen: Date.now()
           };
+          if (data.hostLat != null && data.hostLng != null) {
+            hostPeer.lat = Number(data.hostLat);
+            hostPeer.lng = Number(data.hostLng);
+          }
           const isNewHost = !this.peers.has(data.hostId);
-          this.peers.set(data.hostId, { ...(this.peers.get(data.hostId) || {}), ...hostPeer });
+          this.peers.set(data.hostId, hostPeer);
           if (isNewHost) this.emit('player_joined', hostPeer);
           else this.emit('player_updated', hostPeer);
         }
@@ -442,10 +484,25 @@ class NetworkEngine {
         if (Array.isArray(roster)) {
           roster.forEach(p => {
             if (p.id !== this.playerId) {
+              const existing = this.peers.get(p.id) || {};
+              const peerRecord = {
+                ...existing,
+                ...p,
+                lastSeen: Date.now()
+              };
+              if (p.lat != null && p.lng != null) {
+                peerRecord.lat = Number(p.lat);
+                peerRecord.lng = Number(p.lng);
+                peerRecord.lastPingTime = p.lastPingTime || Date.now();
+              } else if (existing.lat != null) {
+                peerRecord.lat = existing.lat;
+                peerRecord.lng = existing.lng;
+                peerRecord.lastPingTime = existing.lastPingTime;
+              }
               const isNew = !this.peers.has(p.id);
-              this.peers.set(p.id, { ...(this.peers.get(p.id) || {}), ...p, lastSeen: Date.now() });
-              if (isNew) this.emit('player_joined', p);
-              else this.emit('player_updated', p);
+              this.peers.set(p.id, peerRecord);
+              if (isNew) this.emit('player_joined', peerRecord);
+              else this.emit('player_updated', peerRecord);
             }
           });
         }

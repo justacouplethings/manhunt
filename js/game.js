@@ -960,21 +960,48 @@ class ManhuntGame {
         UI.playAudioCue('tag');
         break;
 
-      case 'set_role':
+      case 'set_role': {
+        const roleToSet = newRole || (data && data.newRole);
+        if (!roleToSet || (roleToSet !== 'runner' && roleToSet !== 'seeker')) break;
+
+        // 1. If target is self, apply role change immediately and broadcast presence
         if (targetPlayerId === Network.playerId) {
-          const roleToSet = newRole || (data && data.newRole);
-          if (roleToSet && (roleToSet === 'runner' || roleToSet === 'seeker')) {
-            this.role = roleToSet;
-            Network.role = roleToSet;
-            UI.updateRoleDisplay(this.role);
-            if (this.lastSelfCoords) {
-              MapController.updateSelfLocation(this.lastSelfCoords.lat, this.lastSelfCoords.lng, this.role, this.lastSelfCoords.heading);
-            }
-            UI.notifyCriticalEvent('ROLE ASSIGNED', `👑 Administrator assigned your role to ${roleToSet.toUpperCase()}`, 'info');
-            UI.playAudioCue('start');
+          this.role = roleToSet;
+          Network.role = roleToSet;
+          UI.updateRoleDisplay(this.role);
+          UI.adaptHUDForRole(this.role);
+          if (this.lastSelfCoords) {
+            MapController.updateSelfLocation(this.lastSelfCoords.lat, this.lastSelfCoords.lng, this.role, this.lastSelfCoords.heading);
           }
+          UI.notifyCriticalEvent('ROLE ASSIGNED', `👑 Administrator assigned your role to ${roleToSet.toUpperCase()}`, 'info');
+          UI.playAudioCue('start');
+          Network.sendPresence();
+        }
+
+        // 2. On all squad members, update the peer's role record
+        if (typeof Network !== 'undefined' && Network.peers && Network.peers.has(targetPlayerId)) {
+          const peer = Network.peers.get(targetPlayerId);
+          peer.role = roleToSet;
+          Network.peers.set(targetPlayerId, peer);
+        }
+
+        // 3. Update squad active role sets
+        if (roleToSet === 'seeker') {
+          this.activeSeekers.add(targetPlayerId);
+          this.activeRunners.delete(targetPlayerId);
+        } else {
+          this.activeRunners.add(targetPlayerId);
+          this.activeSeekers.delete(targetPlayerId);
+        }
+
+        this.updatePlayerRoster();
+
+        // 4. If host, emit authoritative beacon with updated roster so nobody reverts the role
+        if (this.isHost) {
+          Network.emitHostBeacon();
         }
         break;
+      }
 
       case 'kick_player':
         if (targetPlayerId === Network.playerId) {

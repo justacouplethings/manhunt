@@ -74,6 +74,9 @@ class AdminEngine {
     // Start UI refresh loop (1 second)
     if (this.pollInterval) clearInterval(this.pollInterval);
     this.pollInterval = setInterval(() => {
+      if (typeof Game !== 'undefined' && Game.roomCode) {
+        this.syncLocalRoomState(Game.roomCode);
+      }
       this.pruneStaleData();
       this.updateStatsBar();
       if (this.currentTab === 'rooms') this.renderRoomsTab();
@@ -230,19 +233,24 @@ class AdminEngine {
       const pId = senderId || (data && data.playerId);
       if (!pId) return;
 
+      const existing = room.players.get(pId) || this.allPlayers.get(pId);
+      const incomingLat = (data && typeof data.lat === 'number' && !isNaN(data.lat)) ? data.lat : null;
+      const incomingLng = (data && typeof data.lng === 'number' && !isNaN(data.lng)) ? data.lng : null;
+
       const playerData = {
         id: pId,
-        nickname: (data && data.nickname) || 'Operative',
-        role: (data && data.role) || 'runner',
+        nickname: (data && data.nickname) || (existing && existing.nickname) || 'Operative',
+        role: (data && data.role) || (existing && existing.role) || 'runner',
         roomCode: roomCode,
-        isHost: !!(data && data.isHost),
-        isTagged: !!(data && data.isTagged),
-        isBot: !!(data && data.isBot) || pId.startsWith('bot_'),
-        lat: data && data.lat ? data.lat : null,
-        lng: data && data.lng ? data.lng : null,
-        speed: data && data.speed ? data.speed : 0,
-        heading: data && data.heading ? data.heading : 0,
-        lastSeen: now
+        isHost: (data && typeof data.isHost !== 'undefined') ? !!data.isHost : (existing ? existing.isHost : false),
+        isTagged: (data && typeof data.isTagged !== 'undefined') ? !!data.isTagged : (existing ? existing.isTagged : false),
+        isBot: (data && typeof data.isBot !== 'undefined') ? !!data.isBot : (pId.startsWith('bot_') || (existing ? existing.isBot : false)),
+        lat: incomingLat !== null ? incomingLat : (existing ? existing.lat : null),
+        lng: incomingLng !== null ? incomingLng : (existing ? existing.lng : null),
+        speed: (data && typeof data.speed === 'number') ? data.speed : (existing ? existing.speed : 0),
+        heading: (data && typeof data.heading === 'number') ? data.heading : (existing ? existing.heading : 0),
+        lastSeen: now,
+        lastPingTime: (data && data.lastPingTime) || (data && data.timestamp) || (existing ? existing.lastPingTime : now)
       };
 
       if (playerData.isHost) {
@@ -270,19 +278,24 @@ class AdminEngine {
 
         if (Array.isArray(data.peers)) {
           data.peers.forEach(peer => {
+            const existing = room.players.get(peer.id) || this.allPlayers.get(peer.id);
+            const peerLat = (typeof peer.lat === 'number' && !isNaN(peer.lat)) ? peer.lat : null;
+            const peerLng = (typeof peer.lng === 'number' && !isNaN(peer.lng)) ? peer.lng : null;
+
             const peerData = {
               id: peer.id,
-              nickname: peer.nickname || 'Operative',
-              role: peer.role || 'runner',
+              nickname: peer.nickname || (existing && existing.nickname) || 'Operative',
+              role: peer.role || (existing && existing.role) || 'runner',
               roomCode: roomCode,
-              isHost: !!peer.isHost,
-              isTagged: !!peer.isTagged,
-              isBot: !!peer.isBot || peer.id.startsWith('bot_'),
-              lat: peer.lat || null,
-              lng: peer.lng || null,
-              speed: peer.speed || 0,
-              heading: peer.heading || 0,
-              lastSeen: now
+              isHost: typeof peer.isHost !== 'undefined' ? !!peer.isHost : (existing ? existing.isHost : false),
+              isTagged: typeof peer.isTagged !== 'undefined' ? !!peer.isTagged : (existing ? existing.isTagged : false),
+              isBot: typeof peer.isBot !== 'undefined' ? !!peer.isBot : (peer.id.startsWith('bot_') || (existing ? existing.isBot : false)),
+              lat: peerLat !== null ? peerLat : (existing ? existing.lat : null),
+              lng: peerLng !== null ? peerLng : (existing ? existing.lng : null),
+              speed: typeof peer.speed === 'number' ? peer.speed : (existing ? existing.speed : 0),
+              heading: typeof peer.heading === 'number' ? peer.heading : (existing ? existing.heading : 0),
+              lastSeen: now,
+              lastPingTime: peer.lastPingTime || peer.timestamp || (existing ? existing.lastPingTime : now)
             };
             room.players.set(peer.id, peerData);
             this.allPlayers.set(peer.id, peerData);
@@ -311,12 +324,13 @@ class AdminEngine {
         room.players.set(pId, player);
       }
 
-      player.lat = data.lat;
-      player.lng = data.lng;
+      if (typeof data.lat === 'number' && !isNaN(data.lat)) player.lat = data.lat;
+      if (typeof data.lng === 'number' && !isNaN(data.lng)) player.lng = data.lng;
       player.role = data.role || player.role;
       player.speed = data.speed || 0;
       player.heading = data.heading || 0;
       player.lastSeen = now;
+      player.lastPingTime = data.timestamp || now;
 
       // Update Live Map Marker
       if (this.masterMap) {
@@ -618,7 +632,8 @@ class AdminEngine {
       const roleIcon = player.role === 'seeker' ? '🎯' : '🏃';
       const hostPill = player.isHost ? '<span class="admin-tag-pill pill-host">👑 HOST</span>' : '';
       const botPill = player.isBot ? '<span class="admin-tag-pill pill-bot">🤖 BOT</span>' : '';
-      const coordsText = player.lat ? `${player.lat.toFixed(4)}, ${player.lng.toFixed(4)}` : 'GPS Searching...';
+      const locInfo = this.getPlayerLocationInfo(player);
+      const coordsText = locInfo.text;
 
       html += `
         <div class="card admin-player-card">
@@ -643,7 +658,7 @@ class AdminEngine {
           </div>
           <div class="admin-meta-row">
             <span class="admin-meta-label">Coordinates:</span>
-            <span class="admin-meta-val" style="font-family:monospace;">${coordsText}</span>
+            <span class="admin-meta-val" style="font-family:monospace; font-size:0.8rem;">${coordsText}</span>
           </div>
 
           <div class="admin-card-actions" style="margin-top:12px;">
@@ -667,16 +682,80 @@ class AdminEngine {
   }
 
   swapPlayerRole(roomCode, playerId, currentRole) {
-    const newRole = currentRole === 'runner' ? 'seeker' : 'runner';
-    this.broadcastCommand(roomCode, {
+    const targetRoom = (roomCode || Game.roomCode || 'GLOBAL').toUpperCase();
+    const p = this.allPlayers.get(playerId);
+    const effRole = currentRole || (p ? p.role : 'runner');
+    const newRole = effRole === 'runner' ? 'seeker' : 'runner';
+
+    // 1. Update in Admin caches immediately
+    if (p) p.role = newRole;
+    const room = this.rooms.get(targetRoom);
+    if (room && room.players.has(playerId)) {
+      const rp = room.players.get(playerId);
+      rp.role = newRole;
+    }
+
+    // 2. If it is a bot, update bot manager immediately
+    if (typeof AdminBot !== 'undefined' && AdminBot.isBotActive(playerId)) {
+      const b = AdminBot.bots.find(x => x.id === playerId);
+      if (b) {
+        b.role = newRole;
+        AdminBot.broadcastBotPresence(b);
+        AdminBot.broadcastBotTelemetry(b, true);
+      }
+    }
+
+    // 3. Update local Network and Game state immediately
+    if (typeof Network !== 'undefined') {
+      if (Network.peers && Network.peers.has(playerId)) {
+        Network.peers.get(playerId).role = newRole;
+      }
+      if (Network.playerId === playerId) {
+        if (typeof Game !== 'undefined') {
+          Game.selfRole = newRole;
+          Game.role = newRole;
+          if (newRole === 'seeker') {
+            Game.activeRunners.delete(playerId);
+            Game.activeSeekers.add(playerId);
+          } else {
+            Game.activeSeekers.delete(playerId);
+            Game.activeRunners.add(playerId);
+          }
+          if (typeof UI !== 'undefined' && UI.updateRoleHUD) {
+            UI.updateRoleHUD(newRole);
+          }
+        }
+        Network.sendPresence();
+      }
+      // If local player is Host, immediately push authoritative host beacon with updated peer roster
+      if (typeof Game !== 'undefined' && Game.isHost) {
+        if (newRole === 'seeker') {
+          Game.activeRunners.delete(playerId);
+          Game.activeSeekers.add(playerId);
+        } else {
+          Game.activeSeekers.delete(playerId);
+          Game.activeRunners.add(playerId);
+        }
+        Network.emitHostBeacon();
+      }
+    }
+
+    // 4. Broadcast admin command to room / relay
+    this.broadcastCommand(targetRoom, {
       type: 'set_role',
       targetPlayerId: playerId,
       newRole: newRole
     });
 
-    const p = this.allPlayers.get(playerId);
-    if (p) p.role = newRole;
+    // 5. Re-render UI
     this.renderPlayersTab();
+    if (this.currentTab === 'bots') this.renderBotsTab();
+    if (this.currentTab === 'map') {
+      this.updateMasterMapMarkers();
+      if (this.selectedPlayerId === playerId) {
+        this.teleportToPlayer(playerId);
+      }
+    }
     UI.showToast(`Assigned ${p ? p.nickname : playerId} to ${newRole.toUpperCase()}`, 'info');
   }
 
@@ -728,12 +807,31 @@ class AdminEngine {
     if (!mapContainer) return;
 
     if (!this.masterMap && typeof L !== 'undefined') {
-      const defaultCenter = Game.lastSelfCoords ? [Game.lastSelfCoords.lat, Game.lastSelfCoords.lng] : [40.7128, -74.0060];
+      let defaultCenter = [0, 0];
+      let defaultZoom = 2;
+      if (typeof Game !== 'undefined' && Game.lastSelfCoords) {
+        defaultCenter = [Game.lastSelfCoords.lat, Game.lastSelfCoords.lng];
+        defaultZoom = 15;
+      } else if (typeof Geo !== 'undefined' && Geo.currentPosition && Geo.currentPosition.lat != null) {
+        defaultCenter = [Geo.currentPosition.lat, Geo.currentPosition.lng];
+        defaultZoom = 15;
+      } else if (typeof Game !== 'undefined' && Game.fixedBoundaryCenter) {
+        defaultCenter = [Game.fixedBoundaryCenter.lat, Game.fixedBoundaryCenter.lng];
+        defaultZoom = 15;
+      } else {
+        for (const p of this.allPlayers.values()) {
+          if (p.lat != null && p.lng != null) {
+            defaultCenter = [p.lat, p.lng];
+            defaultZoom = 15;
+            break;
+          }
+        }
+      }
       
       this.masterMap = L.map('admin-master-map', {
         zoomControl: false,
         attributionControl: false
-      }).setView(defaultCenter, 14);
+      }).setView(defaultCenter, defaultZoom);
 
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
@@ -828,7 +926,7 @@ class AdminEngine {
     if (!this.rooms.has(targetRoom)) {
       this.rooms.set(targetRoom, {
         roomCode: targetRoom,
-        hostName: Game.hostName || (Game.isHost ? (Config.settings.playerNickname || 'Host') : 'Host'),
+        hostName: Game.hostName || (Game.isHost ? (typeof Config !== 'undefined' && Config.settings && Config.settings.playerNickname ? Config.settings.playerNickname : 'Host') : 'Host'),
         hostId: Game.hostId || (Game.isHost ? (typeof Network !== 'undefined' ? Network.playerId : null) : null),
         state: Game.state || 'WAITING',
         playerCount: 1,
@@ -845,49 +943,205 @@ class AdminEngine {
     if (Game.fixedBoundaryCenter) room.boundaryCenter = Game.fixedBoundaryCenter;
     if (Game.fixedBoundaryRadiusMeters) room.boundaryRadiusMeters = Game.fixedBoundaryRadiusMeters;
 
-    // Ingest local player
+    const now = Date.now();
+
+    // 1. Ingest local player
     if (typeof Network !== 'undefined' && Network.playerId && (Game.roomCode === targetRoom || !Game.roomCode)) {
+      const existing = this.allPlayers.get(Network.playerId);
+      const selfCoords = Game.lastSelfCoords || (typeof Geo !== 'undefined' && Geo.currentPosition && Geo.currentPosition.lat != null ? Geo.currentPosition : null);
+      const localLat = selfCoords ? selfCoords.lat : (existing ? existing.lat : null);
+      const localLng = selfCoords ? selfCoords.lng : (existing ? existing.lng : null);
+
       const localPlayer = {
         id: Network.playerId,
-        nickname: Config.settings.playerNickname || 'Local Operative',
-        role: Game.selfRole || 'runner',
+        nickname: (typeof Config !== 'undefined' && Config.settings && Config.settings.playerNickname) || (existing ? existing.nickname : 'Local Operative'),
+        role: Game.selfRole || Game.role || (existing ? existing.role : 'runner'),
         roomCode: targetRoom,
         isHost: !!Game.isHost,
         isTagged: !!Game.isTagged,
         isBot: false,
-        lat: Game.lastSelfCoords ? Game.lastSelfCoords.lat : 40.7580,
-        lng: Game.lastSelfCoords ? Game.lastSelfCoords.lng : -73.9855,
-        speed: Game.lastSelfCoords ? Game.lastSelfCoords.speed || 0 : 0,
-        heading: Game.lastSelfCoords ? Game.lastSelfCoords.heading || 0 : 0,
-        lastSeen: Date.now()
+        lat: localLat,
+        lng: localLng,
+        speed: selfCoords ? selfCoords.speed || 0 : (existing ? existing.speed : 0),
+        heading: selfCoords ? selfCoords.heading || 0 : (existing ? existing.heading : 0),
+        lastSeen: now,
+        lastPingTime: selfCoords ? now : (existing ? existing.lastPingTime : now)
       };
       this.allPlayers.set(localPlayer.id, localPlayer);
       room.players.set(localPlayer.id, localPlayer);
     }
 
-    // Ingest peers from Network
+    // 2. Ingest peers from Network and Game
     if (typeof Network !== 'undefined' && Network.peers && Game.roomCode === targetRoom) {
       Network.peers.forEach((peer, peerId) => {
+        const existing = this.allPlayers.get(peerId);
+        const truePos = (typeof Game !== 'undefined' && Game.trueLivePositions) ? Game.trueLivePositions.get(peerId) : null;
+        const lastKnown = (typeof Game !== 'undefined' && Game.lastKnownPositions) ? Game.lastKnownPositions.get(peerId) : null;
+
+        const effectiveLat = (typeof peer.lat === 'number' && !isNaN(peer.lat)) ? peer.lat : (truePos && truePos.lat != null ? truePos.lat : (lastKnown && lastKnown.lat != null ? lastKnown.lat : (existing ? existing.lat : null)));
+        const effectiveLng = (typeof peer.lng === 'number' && !isNaN(peer.lng)) ? peer.lng : (truePos && truePos.lng != null ? truePos.lng : (lastKnown && lastKnown.lng != null ? lastKnown.lng : (existing ? existing.lng : null)));
+        const effectivePingTime = peer.lastPingTime || (truePos && truePos.timestamp) || (lastKnown && lastKnown.timestamp) || (existing ? existing.lastPingTime : now);
+
+        const peerRole = peer.role || (Game.activeSeekers && Game.activeSeekers.has(peerId) ? 'seeker' : (Game.activeRunners && Game.activeRunners.has(peerId) ? 'runner' : (existing ? existing.role : 'runner')));
+
         const peerData = {
           id: peerId,
-          nickname: peer.nickname || 'Operative',
-          role: peer.role || (Game.activeSeekers && Game.activeSeekers.has(peerId) ? 'seeker' : 'runner'),
+          nickname: peer.nickname || (existing ? existing.nickname : 'Operative'),
+          role: peerRole,
           roomCode: targetRoom,
-          isHost: !!peer.isHost,
-          isTagged: Game.taggedRunners ? Game.taggedRunners.has(peerId) : false,
-          isBot: peerId.startsWith('bot_'),
-          lat: peer.lat || (Game.lastKnownPositions && Game.lastKnownPositions.get(peerId)?.lat) || null,
-          lng: peer.lng || (Game.lastKnownPositions && Game.lastKnownPositions.get(peerId)?.lng) || null,
-          speed: peer.speed || 0,
-          heading: peer.heading || 0,
-          lastSeen: Date.now()
+          isHost: typeof peer.isHost !== 'undefined' ? !!peer.isHost : (existing ? existing.isHost : false),
+          isTagged: (Game.taggedRunners && Game.taggedRunners.has(peerId)) || !!peer.isTagged,
+          isBot: peerId.startsWith('bot_') || !!peer.isBot,
+          lat: effectiveLat,
+          lng: effectiveLng,
+          speed: typeof peer.speed === 'number' ? peer.speed : 0,
+          heading: typeof peer.heading === 'number' ? peer.heading : 0,
+          lastSeen: now,
+          lastPingTime: effectivePingTime
         };
         this.allPlayers.set(peerId, peerData);
         room.players.set(peerId, peerData);
       });
     }
 
+    // 3. Ingest active bots into room directory
+    if (typeof AdminBot !== 'undefined' && AdminBot.bots) {
+      AdminBot.bots.forEach(bot => {
+        if (bot.roomCode === targetRoom) {
+          const botData = {
+            id: bot.id,
+            nickname: bot.nickname,
+            role: bot.role,
+            roomCode: targetRoom,
+            isHost: false,
+            isTagged: false,
+            isBot: true,
+            lat: bot.lat,
+            lng: bot.lng,
+            speed: bot.speed || 0,
+            heading: bot.heading || 0,
+            lastSeen: now,
+            lastPingTime: now
+          };
+          this.allPlayers.set(bot.id, botData);
+          room.players.set(bot.id, botData);
+        }
+      });
+    }
+
     room.playerCount = room.players.size;
+  }
+
+  /**
+   * Resolve player's actual coordinates and formatted timing text
+   */
+  getPlayerLocationInfo(player) {
+    if (!player) return { lat: null, lng: null, text: 'No Location Data', coordsOnly: 'Unknown', pingAgeSec: null, intervalStr: 'None' };
+
+    let lat = (typeof player.lat === 'number' && !isNaN(player.lat)) ? player.lat : null;
+    let lng = (typeof player.lng === 'number' && !isNaN(player.lng)) ? player.lng : null;
+    let lastPingTime = player.lastPingTime || player.lastSeen;
+
+    if (lat === null || lng === null) {
+      if (typeof Game !== 'undefined') {
+        if (Game.trueLivePositions && Game.trueLivePositions.has(player.id)) {
+          const tp = Game.trueLivePositions.get(player.id);
+          if (tp && tp.lat != null) {
+            lat = tp.lat;
+            lng = tp.lng;
+            lastPingTime = tp.timestamp || lastPingTime;
+          }
+        } else if (Game.lastKnownPositions && Game.lastKnownPositions.has(player.id)) {
+          const lkp = Game.lastKnownPositions.get(player.id);
+          if (lkp && lkp.lat != null) {
+            lat = lkp.lat;
+            lng = lkp.lng;
+            lastPingTime = lkp.timestamp || lastPingTime;
+          }
+        }
+      }
+      if ((lat === null || lng === null) && typeof Network !== 'undefined' && Network.peers && Network.peers.has(player.id)) {
+        const peer = Network.peers.get(player.id);
+        if (peer && peer.lat != null) {
+          lat = peer.lat;
+          lng = peer.lng;
+          lastPingTime = peer.lastPingTime || lastPingTime;
+        }
+      }
+      if ((lat === null || lng === null) && typeof Network !== 'undefined' && Network.playerId === player.id) {
+        if (typeof Game !== 'undefined' && Game.lastSelfCoords) {
+          lat = Game.lastSelfCoords.lat;
+          lng = Game.lastSelfCoords.lng;
+          lastPingTime = Date.now();
+        } else if (typeof Geo !== 'undefined' && Geo.currentPosition && Geo.currentPosition.lat != null) {
+          lat = Geo.currentPosition.lat;
+          lng = Geo.currentPosition.lng;
+          lastPingTime = Date.now();
+        }
+      }
+      if ((lat === null || lng === null) && (player.isBot || player.id.startsWith('bot_')) && typeof AdminBot !== 'undefined') {
+        const bot = AdminBot.bots.find(b => b.id === player.id);
+        if (bot && bot.lat != null) {
+          lat = bot.lat;
+          lng = bot.lng;
+          lastPingTime = Date.now();
+        }
+      }
+    }
+
+    // Keep player object synced
+    if (lat !== null && lng !== null) {
+      player.lat = lat;
+      player.lng = lng;
+      player.lastPingTime = lastPingTime;
+    }
+
+    // Ping interval
+    const room = this.rooms.get(player.roomCode);
+    const roomIntervalSec = (room && room.settings && room.settings.runnerPingInterval) || (typeof Config !== 'undefined' && Config.settings && Config.settings.runnerPingInterval) || 300;
+    
+    let intervalStr = '';
+    const isLocalSelf = typeof Network !== 'undefined' && Network.playerId === player.id;
+    if (isLocalSelf) {
+      intervalStr = 'Self · Real-Time GPS';
+    } else if (player.isBot || player.id.startsWith('bot_')) {
+      intervalStr = 'Bot Simulated · Live';
+    } else if (player.role === 'seeker') {
+      intervalStr = 'Seeker GPS · Live (3s)';
+    } else {
+      intervalStr = roomIntervalSec >= 60 ? `${Math.round(roomIntervalSec / 60)}m` : `${roomIntervalSec}s`;
+    }
+
+    if (lat === null || lng === null) {
+      return {
+        lat: null,
+        lng: null,
+        text: `GPS Searching... (Interval: ${intervalStr})`,
+        coordsOnly: 'GPS Searching...',
+        pingAgeSec: null,
+        intervalStr: intervalStr
+      };
+    }
+
+    const now = Date.now();
+    const pingAgeSec = lastPingTime ? Math.max(0, Math.round((now - lastPingTime) / 1000)) : 0;
+    let ageDisplay = '';
+    if (isLocalSelf || player.isBot || player.id.startsWith('bot_')) {
+      ageDisplay = 'Live';
+    } else if (pingAgeSec < 60) {
+      ageDisplay = `${pingAgeSec}s ago`;
+    } else {
+      ageDisplay = `${Math.floor(pingAgeSec / 60)}m ${pingAgeSec % 60}s ago`;
+    }
+
+    return {
+      lat: lat,
+      lng: lng,
+      text: `${lat.toFixed(5)}, ${lng.toFixed(5)} (Last Ping: ${ageDisplay} · Interval: ${intervalStr})`,
+      coordsOnly: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+      pingAgeSec: pingAgeSec,
+      intervalStr: intervalStr
+    };
   }
 
   /**
@@ -965,9 +1219,10 @@ class AdminEngine {
     if (!player) return;
 
     this.selectedPlayerId = playerId;
+    const locInfo = this.getPlayerLocationInfo(player);
 
-    if (player.lat && player.lng && this.masterMap) {
-      this.masterMap.setView([player.lat, player.lng], 17, { animate: true });
+    if (locInfo.lat != null && locInfo.lng != null && this.masterMap) {
+      this.masterMap.setView([locInfo.lat, locInfo.lng], 17, { animate: true });
       const marker = this.playerMarkers.get(playerId);
       if (marker) marker.openPopup();
     }
@@ -984,14 +1239,14 @@ class AdminEngine {
       if (nameEl) nameEl.textContent = `${player.nickname} ${player.isHost ? '👑' : ''} ${player.isBot ? '🤖' : ''}`;
       if (subEl) subEl.textContent = `Room: ${player.roomCode} | Role: ${player.role.toUpperCase()} | ID: ${player.id}`;
       if (coordsEl) {
-        coordsEl.textContent = player.lat ? `${player.lat.toFixed(5)}, ${player.lng.toFixed(5)}` : 'GPS Acquiring...';
+        coordsEl.textContent = locInfo.text;
       }
       card.style.display = 'block';
     }
 
     const coordsDisplay = document.getElementById('admin-map-coords-display');
-    if (coordsDisplay && player.lat) {
-      coordsDisplay.textContent = `Lat: ${player.lat.toFixed(5)}, Lng: ${player.lng.toFixed(5)}`;
+    if (coordsDisplay && locInfo.lat != null) {
+      coordsDisplay.textContent = `Lat: ${locInfo.lat.toFixed(5)}, Lng: ${locInfo.lng.toFixed(5)}`;
     }
 
     UI.showToast(`Teleported camera to ${player.nickname}`, 'info');
@@ -1023,8 +1278,28 @@ class AdminEngine {
       return;
     }
 
-    const baseLat = player.lat || 40.7580;
-    const baseLng = player.lng || -73.9855;
+    const locInfo = this.getPlayerLocationInfo(player);
+    let baseLat = locInfo.lat;
+    let baseLng = locInfo.lng;
+
+    if (baseLat == null || baseLng == null) {
+      // Try local self coordinates
+      if (typeof Game !== 'undefined' && Game.lastSelfCoords) {
+        baseLat = Game.lastSelfCoords.lat;
+        baseLng = Game.lastSelfCoords.lng;
+      } else if (typeof Geo !== 'undefined' && Geo.currentPosition && Geo.currentPosition.lat != null) {
+        baseLat = Geo.currentPosition.lat;
+        baseLng = Geo.currentPosition.lng;
+      } else if (typeof Game !== 'undefined' && Game.fixedBoundaryCenter) {
+        baseLat = Game.fixedBoundaryCenter.lat;
+        baseLng = Game.fixedBoundaryCenter.lng;
+      }
+    }
+
+    if (baseLat == null || baseLng == null) {
+      UI.showToast('⚠️ Cannot spawn bot: Waiting for player or host GPS location.', 'warning');
+      return;
+    }
 
     // Slight realistic offset (~15-25m) so they aren't stacked directly on top
     const angle = Math.random() * 2 * Math.PI;
@@ -1136,6 +1411,9 @@ class AdminEngine {
 
     // 1. Update/Add Player Markers
     for (const [playerId, player] of this.allPlayers.entries()) {
+      if (!player.lat || !player.lng) {
+        this.getPlayerLocationInfo(player);
+      }
       if (!player.lat || !player.lng) continue;
       if (selectedRoom !== 'ALL' && player.roomCode !== selectedRoom) {
         this.removeMapMarker(playerId);
@@ -1157,7 +1435,9 @@ class AdminEngine {
   }
 
   updateSingleMapMarker(player) {
-    if (!this.masterMap || !player.lat || !player.lng) return;
+    if (!this.masterMap) return;
+    const locInfo = this.getPlayerLocationInfo(player);
+    if (locInfo.lat == null || locInfo.lng == null) return;
 
     let marker = this.playerMarkers.get(player.id);
     const color = player.isBot ? '#d946ef' : (player.isHost ? '#f59e0b' : (player.role === 'seeker' ? '#ff4757' : '#00f5b4'));
@@ -1176,36 +1456,42 @@ class AdminEngine {
     });
 
     const popupContent = `
-      <div style="font-family:sans-serif; min-width:180px; color:#fff;">
-        <div style="font-weight:700; color:${color}; font-size:14px; margin-bottom:4px;">
-          ${player.nickname} ${player.isHost ? '👑' : ''} ${player.isBot ? '🤖' : ''}
+      <div style="font-family:sans-serif; min-width:210px; color:#fff; padding:4px;">
+        <div style="font-weight:700; color:${color}; font-size:15px; margin-bottom:4px; display:flex; align-items:center; gap:6px;">
+          <span>${roleIcon}</span>
+          <span>${player.nickname}</span>
+          ${player.isHost ? '<span style="font-size:10px; background:#f59e0b; color:#000; padding:1px 5px; border-radius:3px; font-weight:800;">HOST</span>' : ''}
+          ${player.isBot ? '<span style="font-size:10px; background:#a855f7; color:#fff; padding:1px 5px; border-radius:3px; font-weight:800;">BOT</span>' : ''}
         </div>
-        <div style="font-size:11px; color:#94a3b8; margin-bottom:6px;">
-          Room: <b>${player.roomCode}</b> | Role: <b>${player.role.toUpperCase()}</b>
+        <div style="font-size:11px; color:#cbd5e1; margin-bottom:6px;">
+          Room: <b style="color:#38bdf8;">${player.roomCode}</b> | Role: <b style="color:${color}; text-transform:uppercase;">${player.role}</b>
         </div>
-        <div style="font-size:11px; font-family:monospace; margin-bottom:8px; color:#00f5b4;">
-          ${player.lat.toFixed(5)}, ${player.lng.toFixed(5)}
+        <div style="font-size:11px; font-family:monospace; margin-bottom:10px; color:#00f5b4; background:#0f172a; padding:5px 8px; border-radius:4px; border:1px solid #334155;">
+          📍 ${locInfo.coordsOnly} <span style="font-size:9px; color:#94a3b8; display:block; margin-top:2px;">${locInfo.intervalStr}</span>
         </div>
-        <div style="display:flex; gap:4px; flex-wrap:wrap;">
-          <button type="button" style="font-size:10px; padding:3px 6px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px; cursor:pointer;" onclick="Admin.swapPlayerRole('${player.roomCode}', '${player.id}', '${player.role}')">
-            Swap Role
+        <div style="display:flex; gap:6px; flex-direction:column;">
+          <button type="button" class="btn-primary" style="font-size:12px; font-weight:700; padding:8px 12px; border-radius:6px; cursor:pointer; width:100%; display:flex; align-items:center; justify-content:center; gap:6px; background:#0284c7; color:#fff; border:none;" onclick="Admin.spawnBotAtPlayer('${player.id}')">
+            🤖 Spawn Bot Here
           </button>
-          <button type="button" style="font-size:10px; padding:3px 6px; background:#38bdf8; color:#000; font-weight:700; border:none; border-radius:4px; cursor:pointer;" onclick="Admin.spawnBotAtPlayer('${player.id}')">
-            Spawn Bot Here
-          </button>
-          <button type="button" style="font-size:10px; padding:3px 6px; background:#ff4757; color:#fff; border:none; border-radius:4px; cursor:pointer;" onclick="Admin.confirmKickPlayer('${player.roomCode}', '${player.id}', '${player.nickname}')">
-            Kick
-          </button>
+          <div style="display:flex; gap:6px;">
+            <button type="button" class="btn-secondary" style="font-size:11px; font-weight:600; padding:6px 10px; border-radius:6px; cursor:pointer; flex:1; background:#334155; color:#fff; border:1px solid #475569;" onclick="Admin.swapPlayerRole('${player.roomCode}', '${player.id}', '${player.role}')">
+              🔄 Swap Role
+            </button>
+            <button type="button" class="btn-danger" style="font-size:11px; font-weight:600; padding:6px 10px; border-radius:6px; cursor:pointer; background:#dc2626; color:#fff; border:none;" onclick="Admin.confirmKickPlayer('${player.roomCode}', '${player.id}', '${player.nickname}')">
+              👢 Kick
+            </button>
+          </div>
         </div>
       </div>
     `;
 
     if (!marker) {
-      marker = L.marker([player.lat, player.lng], { icon }).addTo(this.masterMap);
+      marker = L.marker([locInfo.lat, locInfo.lng], { icon }).addTo(this.masterMap);
       marker.bindPopup(popupContent);
+      marker.on('click', () => this.teleportToPlayer(player.id));
       this.playerMarkers.set(player.id, marker);
     } else {
-      marker.setLatLng([player.lat, player.lng]);
+      marker.setLatLng([locInfo.lat, locInfo.lng]);
       marker.setIcon(icon);
       marker.setPopupContent(popupContent);
     }
@@ -1293,11 +1579,14 @@ class AdminEngine {
     }
 
     const player = this.allPlayers.get(playerId);
-    if (player && player.lat && player.lng) {
-      if (coordsDisplay) coordsDisplay.style.display = 'block';
-      if (coordsVal) coordsVal.textContent = `${player.lat.toFixed(5)}, ${player.lng.toFixed(5)}`;
-      if (latInput) latInput.value = player.lat.toFixed(5);
-      if (lngInput) lngInput.value = player.lng.toFixed(5);
+    if (player) {
+      const locInfo = this.getPlayerLocationInfo(player);
+      if (locInfo.lat != null && locInfo.lng != null) {
+        if (coordsDisplay) coordsDisplay.style.display = 'block';
+        if (coordsVal) coordsVal.textContent = locInfo.text;
+        if (latInput) latInput.value = locInfo.lat.toFixed(5);
+        if (lngInput) lngInput.value = locInfo.lng.toFixed(5);
+      }
     }
   }
 
@@ -1316,10 +1605,29 @@ class AdminEngine {
     const latInput = document.getElementById('admin-bot-lat');
     const lngInput = document.getElementById('admin-bot-lng');
 
-    const coords = Game.lastSelfCoords || { lat: 40.7580, lng: -73.9855 };
-    if (latInput) latInput.value = coords.lat.toFixed(5);
-    if (lngInput) lngInput.value = coords.lng.toFixed(5);
-    UI.showToast(`Set bot coordinates to my GPS (${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)})`, 'info');
+    let coords = null;
+    if (typeof Game !== 'undefined' && Game.lastSelfCoords) {
+      coords = Game.lastSelfCoords;
+    } else if (typeof Geo !== 'undefined' && Geo.currentPosition && Geo.currentPosition.lat != null) {
+      coords = Geo.currentPosition;
+    } else if (typeof Game !== 'undefined' && Game.fixedBoundaryCenter) {
+      coords = Game.fixedBoundaryCenter;
+    } else {
+      for (const p of this.allPlayers.values()) {
+        if (p.lat != null && p.lng != null) {
+          coords = { lat: p.lat, lng: p.lng };
+          break;
+        }
+      }
+    }
+
+    if (coords && coords.lat != null && coords.lng != null) {
+      if (latInput) latInput.value = coords.lat.toFixed(5);
+      if (lngInput) lngInput.value = coords.lng.toFixed(5);
+      UI.showToast(`Set bot coordinates to GPS (${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)})`, 'info');
+    } else {
+      UI.showToast('GPS position not yet available. Please wait for fix.', 'warning');
+    }
   }
 
   renderBotsTab() {
@@ -1448,12 +1756,23 @@ class AdminEngine {
 
     // Fallback coordinates if blank
     if (isNaN(lat) || isNaN(lng)) {
-      if (Game.lastSelfCoords) {
+      if (typeof Game !== 'undefined' && Game.lastSelfCoords) {
         lat = Game.lastSelfCoords.lat + (Math.random() * 0.002 - 0.001);
         lng = Game.lastSelfCoords.lng + (Math.random() * 0.002 - 0.001);
+      } else if (typeof Geo !== 'undefined' && Geo.currentPosition && Geo.currentPosition.lat != null) {
+        lat = Geo.currentPosition.lat + (Math.random() * 0.002 - 0.001);
+        lng = Geo.currentPosition.lng + (Math.random() * 0.002 - 0.001);
+      } else if (typeof Game !== 'undefined' && Game.fixedBoundaryCenter) {
+        lat = Game.fixedBoundaryCenter.lat + (Math.random() * 0.002 - 0.001);
+        lng = Game.fixedBoundaryCenter.lng + (Math.random() * 0.002 - 0.001);
       } else {
-        lat = 40.7128 + (Math.random() * 0.002 - 0.001);
-        lng = -74.0060 + (Math.random() * 0.002 - 0.001);
+        for (const p of this.allPlayers.values()) {
+          if (p.lat != null && p.lng != null) {
+            lat = p.lat + (Math.random() * 0.002 - 0.001);
+            lng = p.lng + (Math.random() * 0.002 - 0.001);
+            break;
+          }
+        }
       }
     }
 
@@ -1541,8 +1860,34 @@ class AdminBotManager {
 
   spawn(roomCode, nickname, role = 'runner', lat = null, lng = null) {
     const botId = 'bot_' + Math.random().toString(36).substring(2, 8);
-    const defaultLat = lat || (Game.lastSelfCoords ? Game.lastSelfCoords.lat + 0.001 : 40.7128);
-    const defaultLng = lng || (Game.lastSelfCoords ? Game.lastSelfCoords.lng + 0.001 : -74.0060);
+    let defaultLat = (typeof lat === 'number' && !isNaN(lat)) ? lat : null;
+    let defaultLng = (typeof lng === 'number' && !isNaN(lng)) ? lng : null;
+
+    if (defaultLat == null || defaultLng == null) {
+      if (typeof Game !== 'undefined' && Game.lastSelfCoords) {
+        defaultLat = Game.lastSelfCoords.lat + (Math.random() * 0.002 - 0.001);
+        defaultLng = Game.lastSelfCoords.lng + (Math.random() * 0.002 - 0.001);
+      } else if (typeof Geo !== 'undefined' && Geo.currentPosition && Geo.currentPosition.lat != null) {
+        defaultLat = Geo.currentPosition.lat + (Math.random() * 0.002 - 0.001);
+        defaultLng = Geo.currentPosition.lng + (Math.random() * 0.002 - 0.001);
+      } else if (typeof Game !== 'undefined' && Game.fixedBoundaryCenter) {
+        defaultLat = Game.fixedBoundaryCenter.lat + (Math.random() * 0.002 - 0.001);
+        defaultLng = Game.fixedBoundaryCenter.lng + (Math.random() * 0.002 - 0.001);
+      } else if (typeof Admin !== 'undefined' && Admin.allPlayers) {
+        for (const p of Admin.allPlayers.values()) {
+          if (p.lat != null && p.lng != null) {
+            defaultLat = p.lat + (Math.random() * 0.002 - 0.001);
+            defaultLng = p.lng + (Math.random() * 0.002 - 0.001);
+            break;
+          }
+        }
+      }
+    }
+
+    if (defaultLat == null || defaultLng == null) {
+      defaultLat = 0;
+      defaultLng = 0;
+    }
 
     const bot = {
       id: botId,

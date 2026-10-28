@@ -2706,6 +2706,8 @@ input:checked + .slider::before {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
   background: #090d16;
   padding: 6px 10px;
   border-radius: 6px;
@@ -2715,9 +2717,10 @@ input:checked + .slider::before {
 
 .admin-focus-coords-val {
   font-family: monospace;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   color: #00f5b4;
   font-weight: 700;
+  word-break: break-word;
 }
 
 .admin-focus-actions {

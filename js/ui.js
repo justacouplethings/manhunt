@@ -290,14 +290,25 @@ class UIManager {
   updateConnectionBadge(isConnected, broker = '') {
     const badge = document.getElementById('status-connection');
     if (!badge) return;
+
     if (isConnected) {
+      if (this.disconnectBadgeTimer) {
+        clearTimeout(this.disconnectBadgeTimer);
+        this.disconnectBadgeTimer = null;
+      }
       const brokerShort = broker.includes('hivemq') ? 'HIVEMQ' : (broker.includes('emqx') ? 'EMQX' : 'RELAY');
-      const count = Network.peers.size + 1;
+      const count = (typeof Network !== 'undefined' && Network.peers) ? Network.peers.size + 1 : 1;
       badge.textContent = `● ${brokerShort} (${count}P)`;
       badge.className = 'status-badge status-online';
     } else {
-      badge.textContent = 'CONNECTING...';
-      badge.className = 'status-badge status-offline';
+      // Debounce brief socket reconnects so players never see momentary "CONNECTING..." flicker
+      if (!this.disconnectBadgeTimer) {
+        this.disconnectBadgeTimer = setTimeout(() => {
+          badge.textContent = 'CONNECTING...';
+          badge.className = 'status-badge status-offline';
+          this.disconnectBadgeTimer = null;
+        }, 3000);
+      }
     }
   }
 
