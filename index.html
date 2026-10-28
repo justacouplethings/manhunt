@@ -688,43 +688,105 @@
         </div>
 
         <!-- 3. MASTER GOD'S-EYE MAP TAB -->
-        <div id="admin-tab-map" class="admin-tab-pane" style="padding:0; height:calc(100vh - 120px); position:relative;">
+        <div id="admin-tab-map" class="admin-tab-pane">
           <!-- Map Floating Control Strip -->
           <div class="admin-map-overlay-bar">
-            <select id="admin-map-room-filter" class="tactical-select admin-map-select" onchange="Admin.updateMasterMapMarkers()">
+            <button type="button" class="admin-map-ctrl-btn btn-ghost" onclick="Admin.switchTab('rooms')" title="Return to Admin Overview">
+              <span>⬅</span> Menu
+            </button>
+            <select id="admin-map-room-filter" class="tactical-select admin-map-select" onchange="Admin.onMapRoomFilterChange(this.value)">
               <option value="ALL">🌐 All Operations (Global)</option>
             </select>
-            <button type="button" id="btn-admin-map-click-bot" class="admin-map-ctrl-btn" onclick="Admin.toggleMapPlacementMode()" title="Toggle Tap-to-Place Bot Mode">
-              <span>📍</span> Move Bot on Tap
-            </button>
+            <select id="admin-map-player-select" class="tactical-select admin-map-select" onchange="Admin.teleportToPlayer(this.value)" style="max-width:210px;" title="Teleport Camera to Active Player">
+              <option value="">📍 Snap to Player...</option>
+            </select>
             <button type="button" id="btn-admin-map-fit" class="admin-map-ctrl-btn" onclick="Admin.fitAllMapMarkers()" title="Zoom to fit all players">
               <span>🔍</span> Fit All
+            </button>
+            <button type="button" id="btn-admin-map-click-bot" class="admin-map-ctrl-btn" onclick="Admin.toggleMapPlacementMode()" title="Toggle Tap-to-Place Bot Mode">
+              <span>📍</span> Move Bot on Tap
             </button>
             <div id="admin-map-coords-display" class="admin-map-coords">
               Lat: --, Lng: --
             </div>
           </div>
+
+          <!-- Tap to Drop Bot Banner -->
+          <div id="admin-map-spawn-banner" class="admin-map-banner" style="display:none;">
+            <div id="admin-map-spawn-banner-text">🎯 Tap anywhere on map to drop bot</div>
+            <button type="button" class="btn-ghost" style="padding:2px 8px; font-size:0.75rem; color:#090d16; border-color:#090d16; font-weight:800;" onclick="Admin.cancelMapTapSpawnMode()">✕ Cancel</button>
+          </div>
+
+          <!-- Focused Player HUD Card -->
+          <div id="admin-map-player-focus-card" class="admin-focus-card" style="display:none;">
+            <div class="admin-focus-header">
+              <div class="admin-focus-identity">
+                <span id="admin-focus-role-icon" style="font-size:1.2rem;">🏃</span>
+                <div>
+                  <div id="admin-focus-player-name" class="admin-focus-name">Operative</div>
+                  <div id="admin-focus-player-sub" class="admin-focus-sub">Room: ABCD | RUNNER</div>
+                </div>
+              </div>
+              <button type="button" class="admin-focus-close-btn" onclick="Admin.clearPlayerFocus()">✕</button>
+            </div>
+            <div class="admin-focus-body">
+              <div class="admin-focus-coords">
+                <span class="admin-meta-label">Coordinates:</span>
+                <span id="admin-focus-coords-text" class="admin-focus-coords-val">0.00000, 0.00000</span>
+              </div>
+            </div>
+            <div class="admin-focus-actions">
+              <button type="button" id="btn-admin-focus-spawn-bot" class="btn-primary" style="font-size:0.75rem; padding:6px 12px; flex:1;" onclick="Admin.spawnBotAtFocusedPlayer()">
+                <span>🤖</span> Spawn Bot at this Player
+              </button>
+              <button type="button" class="btn-secondary" style="font-size:0.75rem; padding:6px 10px;" onclick="Admin.swapFocusedPlayerRole()">
+                <span>🔄</span> Swap Role
+              </button>
+            </div>
+          </div>
+
           <!-- Leaflet Map Container -->
-          <div id="admin-master-map" style="width:100%; height:100%;"></div>
+          <div id="admin-master-map" style="width:100%; height:100%; flex:1;"></div>
         </div>
 
         <!-- 4. BOT & TESTING SANDBOX TAB -->
         <div id="admin-tab-bots" class="admin-tab-pane">
+          <!-- Persistent Navigation Toolbar -->
+          <div class="admin-pane-toolbar">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <button type="button" class="btn-secondary" style="font-size:0.75rem; padding:6px 12px;" onclick="Admin.switchTab('rooms')">
+                <span>⬅</span> Admin Menu
+              </button>
+              <h3 class="admin-pane-title">Bot & Telemetry Sandbox</h3>
+            </div>
+            <button type="button" class="btn-danger" style="font-size:0.72rem; padding:6px 10px;" onclick="AdminBot.despawnAll()">
+              <span>🗑️</span> Despawn All Bots
+            </button>
+          </div>
+
           <!-- Spawner Form Card -->
           <div class="card admin-spawner-card">
             <div class="card-title" style="color:var(--theme-primary);">➕ Inject Bot Operative</div>
             <p style="font-size:0.8rem; color:var(--theme-text-muted); margin-bottom:12px;">
               Spawn real GPS bot agents transmitting live packets to test multi-device gameplay, tag radius, and boundaries.
             </p>
-            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin-bottom:12px;">
+
+            <div class="admin-spawner-grid">
               <div class="input-group">
                 <label class="input-label" for="admin-bot-room-target">Target Room Code</label>
-                <input type="text" id="admin-bot-room-target" class="tactical-input" placeholder="e.g. ABCD" maxlength="6">
+                <div style="display:flex; gap:6px;">
+                  <select id="admin-bot-room-target-select" class="tactical-select" onchange="Admin.onBotRoomSelectChange(this.value)" style="flex:1;">
+                    <option value="">Select Room...</option>
+                  </select>
+                  <input type="text" id="admin-bot-room-target" class="tactical-input" placeholder="ABCD" maxlength="6" style="width:90px; text-transform:uppercase;">
+                </div>
               </div>
+
               <div class="input-group">
                 <label class="input-label" for="admin-bot-name">Bot Callsign</label>
-                <input type="text" id="admin-bot-name" class="tactical-input" placeholder="e.g. Ghost-Bot" maxlength="15">
+                <input type="text" id="admin-bot-name" class="tactical-input" placeholder="e.g. Ghost-1" maxlength="15">
               </div>
+
               <div class="input-group">
                 <label class="input-label" for="admin-bot-role">Tactical Role</label>
                 <select id="admin-bot-role" class="tactical-select">
@@ -734,25 +796,52 @@
               </div>
             </div>
 
-            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:14px;">
-              <div class="input-group">
-                <label class="input-label" for="admin-bot-lat">Initial Latitude (Optional)</label>
-                <input type="number" id="admin-bot-lat" class="tactical-input" placeholder="e.g. 40.7580" step="any">
+            <!-- Quick Player Snap / Spawn Section -->
+            <div class="admin-snap-section">
+              <div style="font-size:0.8rem; font-weight:700; color:var(--theme-text-bright); margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+                <span>👥</span> Quick Spawn Near Player:
               </div>
-              <div class="input-group">
-                <label class="input-label" for="admin-bot-lng">Initial Longitude (Optional)</label>
-                <input type="number" id="admin-bot-lng" class="tactical-input" placeholder="e.g. -73.9855" step="any">
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <select id="admin-bot-player-snap-select" class="tactical-select" onchange="Admin.onBotPlayerSnapSelect(this.value)" style="flex:1; min-width:180px;">
+                  <option value="">Select player in room...</option>
+                </select>
+                <button type="button" class="btn-secondary" style="font-size:0.75rem; padding:8px 12px; white-space:nowrap;" onclick="Admin.spawnBotAtSelectedPlayer()">
+                  <span>🤖</span> Spawn at This Player
+                </button>
+              </div>
+              <div id="admin-bot-player-coords-display" class="admin-coords-pill" style="margin-top:6px; display:none;">
+                Selected Player Coordinates: <span id="admin-bot-player-coords-val" style="font-family:monospace; color:#00f5b4;">--</span>
               </div>
             </div>
 
-            <button type="button" class="btn-primary" onclick="Admin.handleSpawnBotSubmit()">
+            <!-- Coordinate inputs & Map Tap Mode -->
+            <div style="margin-top:12px; margin-bottom:14px;">
+              <div style="font-size:0.78rem; font-weight:700; color:#64748b; margin-bottom:6px;">GPS Coordinates Placement:</div>
+              <div class="admin-coords-grid">
+                <div class="input-group">
+                  <input type="number" id="admin-bot-lat" class="tactical-input" placeholder="Lat (e.g. 40.7580)" step="any">
+                </div>
+                <div class="input-group">
+                  <input type="number" id="admin-bot-lng" class="tactical-input" placeholder="Lng (e.g. -73.9855)" step="any">
+                </div>
+                <button type="button" class="btn-ghost" style="font-size:0.72rem; padding:8px 10px; white-space:nowrap;" onclick="Admin.fillCurrentCoordsForBot()" title="Use device GPS">
+                  <span>📍</span> My GPS
+                </button>
+                <button type="button" class="btn-secondary" style="font-size:0.72rem; padding:8px 10px; white-space:nowrap;" onclick="Admin.startMapTapSpawnMode()" title="Drop directly on map">
+                  <span>🎯</span> Tap on Map
+                </button>
+              </div>
+            </div>
+
+            <button type="button" class="btn-primary" style="width:100%; padding:12px; font-weight:800;" onclick="Admin.handleSpawnBotSubmit()">
               <span>🚀</span> INJECT BOT INTO OPERATION
             </button>
           </div>
 
           <!-- Active Bots Header -->
-          <div class="admin-pane-toolbar" style="margin-top:16px;">
+          <div class="admin-pane-toolbar" style="margin-top:20px;">
             <h3 class="admin-pane-title">Active Injected Bots</h3>
+            <span id="admin-bots-count-badge" class="admin-player-pill">0 Active Bots</span>
           </div>
           <div id="admin-bots-list" class="admin-card-grid">
             <!-- Dynamically populated injected bots -->

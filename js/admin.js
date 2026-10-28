@@ -17,6 +17,7 @@ class AdminEngine {
     this.selectedPlayerId = null;
     this.selectedBotId = null;
     this.isMapPlacementMode = false;
+    this.pendingBotSpawn = null;
     this.followPlayerId = null;
     this.previousScreen = 'screen-lobby';
     
@@ -61,6 +62,11 @@ class AdminEngine {
     this.previousScreen = UI.currentScreen || 'screen-lobby';
     UI.showScreen('screen-admin');
     
+    // Ingest any active local room state immediately
+    if (typeof Game !== 'undefined' && Game.roomCode) {
+      this.syncLocalRoomState(Game.roomCode);
+    }
+
     this.connectGlobalMonitor();
     this.switchTab(this.currentTab);
     this.updateStatsBar();
@@ -73,7 +79,10 @@ class AdminEngine {
       if (this.currentTab === 'rooms') this.renderRoomsTab();
       if (this.currentTab === 'players') this.renderPlayersTab();
       if (this.currentTab === 'bots') this.renderBotsTab();
-      if (this.currentTab === 'map') this.updateMasterMapMarkers();
+      if (this.currentTab === 'map') {
+        this.updateMasterMapMarkers();
+        this.updateMapRoomFilterOptions();
+      }
     }, 1000);
   }
 
@@ -421,7 +430,9 @@ class AdminEngine {
     if (tabId === 'map') {
       setTimeout(() => {
         this.initMasterMap();
+        this.updateMapRoomFilterOptions();
         this.updateMasterMapMarkers();
+        this.updateMapPlayerTeleportOptions();
       }, 100);
     }
     if (tabId === 'bots') this.renderBotsTab();
@@ -706,16 +717,18 @@ class AdminEngine {
         subdomains: ['a', 'b', 'c']
       }).addTo(this.masterMap);
 
-      // Handle map click (for interactive bot placement)
+      // Handle map click (for interactive bot placement / tap-to-drop)
       this.masterMap.on('click', (e) => {
         this.onMasterMapClick(e.latlng);
       });
 
-      // Populate room filter dropdown
+      // Populate room filter and player teleport dropdowns
       this.updateMapRoomFilterOptions();
+      this.updateMapPlayerTeleportOptions();
     } else if (this.masterMap) {
       this.masterMap.invalidateSize();
       this.updateMapRoomFilterOptions();
+      this.updateMapPlayerTeleportOptions();
     }
   }
 
@@ -723,13 +736,332 @@ class AdminEngine {
     const select = document.getElementById('admin-map-room-filter');
     if (!select) return;
 
-    const currentVal = select.value || 'ALL';
+    const currentVal = this.selectedRoomCode || select.value || 'ALL';
     let options = '<option value="ALL">🌐 All Operations (Global)</option>';
-    for (const roomCode of this.rooms.keys()) {
-      options += `<option value="${roomCode}">Room: ${roomCode}</option>`;
+    for (const [roomCode, room] of this.rooms.entries()) {
+      options += `<option value="${roomCode}">Room: ${roomCode} (${room.playerCount} Operatives)</option>`;
     }
     select.innerHTML = options;
     select.value = currentVal;
+  }
+
+  /**
+   * Handle room selection in God's Eye Map
+   * Immediately clears outdated data, queries the relay, syncs local engine,
+   * re-plots GPS coordinates, and frames the camera on the room.
+   */
+  onMapRoomFilterChange(roomCode) {
+    this.selectedRoomCode = roomCode;
+
+    // 1. If global view, refresh all and fit all
+    if (roomCode === 'ALL') {
+      this.updateMasterMapMarkers();
+      this.updateMapPlayerTeleportOptions();
+      this.clearPlayerFocus();
+      this.fitAllMapMarkers();
+      UI.showToast('Showing all active operations', 'info');
+      return;
+    }
+
+    // 2. Clear old map layers not in this room
+    for (const [pId, p] of this.allPlayers.entries()) {
+      if (p.roomCode !== roomCode) {
+        this.removeMapMarker(pId);
+      }
+    }
+    for (const [rCode] of this.rooms.entries()) {
+      if (rCode !== roomCode) {
+        this.removeBoundaryLayer(rCode);
+      }
+    }
+
+    // 3. Query relay for latest state
+    this.broadcastCommand(roomCode, { type: 'admin_probe' });
+
+    // 4. Ingest local Game & Network state if current client is in this room
+    this.syncLocalRoomState(roomCode);
+
+    // 5. Update markers and boundary
+    this.updateMasterMapMarkers();
+
+    // 6. Focus camera on this room's players or boundary
+    this.focusRoomOnMap(roomCode);
+
+    // 7. Update player teleport list for this room
+    this.updateMapPlayerTeleportOptions();
+    this.clearPlayerFocus();
+
+    UI.showToast(`Focused on Operation ${roomCode}`, 'info');
+  }
+
+  /**
+   * Sync active local player & peers from Game / Network into Admin directory
+   */
+  syncLocalRoomState(roomCode) {
+    if (typeof Game === 'undefined') return;
+    const targetRoom = (roomCode || Game.roomCode || '').toUpperCase();
+    if (!targetRoom || targetRoom === 'GLOBAL') return;
+
+    if (!this.rooms.has(targetRoom)) {
+      this.rooms.set(targetRoom, {
+        roomCode: targetRoom,
+        hostName: Game.hostName || (Game.isHost ? (Config.settings.playerNickname || 'Host') : 'Host'),
+        hostId: Game.hostId || (Game.isHost ? (typeof Network !== 'undefined' ? Network.playerId : null) : null),
+        state: Game.state || 'WAITING',
+        playerCount: 1,
+        players: new Map(),
+        settings: Game.settings || {},
+        boundaryCenter: Game.fixedBoundaryCenter || null,
+        boundaryRadiusMeters: Game.fixedBoundaryRadiusMeters || 1500,
+        lastSeen: Date.now()
+      });
+    }
+
+    const room = this.rooms.get(targetRoom);
+    room.state = Game.state || room.state;
+    if (Game.fixedBoundaryCenter) room.boundaryCenter = Game.fixedBoundaryCenter;
+    if (Game.fixedBoundaryRadiusMeters) room.boundaryRadiusMeters = Game.fixedBoundaryRadiusMeters;
+
+    // Ingest local player
+    if (typeof Network !== 'undefined' && Network.playerId && (Game.roomCode === targetRoom || !Game.roomCode)) {
+      const localPlayer = {
+        id: Network.playerId,
+        nickname: Config.settings.playerNickname || 'Local Operative',
+        role: Game.selfRole || 'runner',
+        roomCode: targetRoom,
+        isHost: !!Game.isHost,
+        isTagged: !!Game.isTagged,
+        isBot: false,
+        lat: Game.lastSelfCoords ? Game.lastSelfCoords.lat : 40.7580,
+        lng: Game.lastSelfCoords ? Game.lastSelfCoords.lng : -73.9855,
+        speed: Game.lastSelfCoords ? Game.lastSelfCoords.speed || 0 : 0,
+        heading: Game.lastSelfCoords ? Game.lastSelfCoords.heading || 0 : 0,
+        lastSeen: Date.now()
+      };
+      this.allPlayers.set(localPlayer.id, localPlayer);
+      room.players.set(localPlayer.id, localPlayer);
+    }
+
+    // Ingest peers from Network
+    if (typeof Network !== 'undefined' && Network.peers && Game.roomCode === targetRoom) {
+      Network.peers.forEach((peer, peerId) => {
+        const peerData = {
+          id: peerId,
+          nickname: peer.nickname || 'Operative',
+          role: peer.role || (Game.activeSeekers && Game.activeSeekers.has(peerId) ? 'seeker' : 'runner'),
+          roomCode: targetRoom,
+          isHost: !!peer.isHost,
+          isTagged: Game.taggedRunners ? Game.taggedRunners.has(peerId) : false,
+          isBot: peerId.startsWith('bot_'),
+          lat: peer.lat || (Game.lastKnownPositions && Game.lastKnownPositions.get(peerId)?.lat) || null,
+          lng: peer.lng || (Game.lastKnownPositions && Game.lastKnownPositions.get(peerId)?.lng) || null,
+          speed: peer.speed || 0,
+          heading: peer.heading || 0,
+          lastSeen: Date.now()
+        };
+        this.allPlayers.set(peerId, peerData);
+        room.players.set(peerId, peerData);
+      });
+    }
+
+    room.playerCount = room.players.size;
+  }
+
+  /**
+   * Smoothly pan & zoom master map to fit room players or boundary
+   */
+  focusRoomOnMap(roomCode) {
+    if (!this.masterMap) return;
+    const room = this.rooms.get(roomCode);
+    const coords = [];
+
+    for (const p of this.allPlayers.values()) {
+      if (p.roomCode === roomCode && p.lat && p.lng) {
+        coords.push([p.lat, p.lng]);
+      }
+    }
+
+    if (coords.length > 0) {
+      if (coords.length === 1) {
+        this.masterMap.setView(coords[0], 16, { animate: true });
+      } else {
+        const bounds = L.latLngBounds(coords);
+        this.masterMap.fitBounds(bounds.pad(0.25), { animate: true });
+      }
+    } else if (room && room.boundaryCenter && room.boundaryCenter.lat) {
+      this.masterMap.setView([room.boundaryCenter.lat, room.boundaryCenter.lng], 15, { animate: true });
+    } else if (Game.lastSelfCoords) {
+      this.masterMap.setView([Game.lastSelfCoords.lat, Game.lastSelfCoords.lng], 15, { animate: true });
+    }
+  }
+
+  /**
+   * Populate quick-select player teleport dropdown
+   */
+  updateMapPlayerTeleportOptions() {
+    const select = document.getElementById('admin-map-player-select');
+    if (!select) return;
+
+    const selectedRoom = this.selectedRoomCode || document.getElementById('admin-map-room-filter')?.value || 'ALL';
+    const players = [];
+
+    for (const p of this.allPlayers.values()) {
+      if (selectedRoom === 'ALL' || p.roomCode === selectedRoom) {
+        players.push(p);
+      }
+    }
+
+    let html = '<option value="">📍 Snap / Teleport to Player...</option>';
+    if (players.length === 0) {
+      html += '<option value="" disabled>No active players</option>';
+    } else {
+      players.forEach(p => {
+        const roleIcon = p.isBot ? '🤖' : (p.role === 'seeker' ? '🎯' : '🏃');
+        const hostPill = p.isHost ? ' (Host)' : '';
+        const botPill = p.isBot ? ' [Bot]' : '';
+        const coordsText = p.lat ? ` (${p.lat.toFixed(4)}, ${p.lng.toFixed(4)})` : ' (GPS...)';
+        html += `<option value="${p.id}">${roleIcon} ${p.nickname}${hostPill}${botPill} - ${p.role.toUpperCase()}${coordsText}</option>`;
+      });
+    }
+    select.innerHTML = html;
+    if (this.selectedPlayerId) {
+      select.value = this.selectedPlayerId;
+    }
+  }
+
+  /**
+   * Instant camera pan and zoom ("teleport") directly to player's live GPS coordinates
+   */
+  teleportToPlayer(playerId) {
+    if (!playerId) {
+      this.clearPlayerFocus();
+      return;
+    }
+
+    const player = this.allPlayers.get(playerId);
+    if (!player) return;
+
+    this.selectedPlayerId = playerId;
+
+    if (player.lat && player.lng && this.masterMap) {
+      this.masterMap.setView([player.lat, player.lng], 17, { animate: true });
+      const marker = this.playerMarkers.get(playerId);
+      if (marker) marker.openPopup();
+    }
+
+    // Display Focused Player HUD card
+    const card = document.getElementById('admin-map-player-focus-card');
+    const roleIcon = document.getElementById('admin-focus-role-icon');
+    const nameEl = document.getElementById('admin-focus-player-name');
+    const subEl = document.getElementById('admin-focus-player-sub');
+    const coordsEl = document.getElementById('admin-focus-coords-text');
+
+    if (card) {
+      if (roleIcon) roleIcon.textContent = player.isBot ? '🤖' : (player.role === 'seeker' ? '🎯' : '🏃');
+      if (nameEl) nameEl.textContent = `${player.nickname} ${player.isHost ? '👑' : ''} ${player.isBot ? '🤖' : ''}`;
+      if (subEl) subEl.textContent = `Room: ${player.roomCode} | Role: ${player.role.toUpperCase()} | ID: ${player.id}`;
+      if (coordsEl) {
+        coordsEl.textContent = player.lat ? `${player.lat.toFixed(5)}, ${player.lng.toFixed(5)}` : 'GPS Acquiring...';
+      }
+      card.style.display = 'block';
+    }
+
+    const coordsDisplay = document.getElementById('admin-map-coords-display');
+    if (coordsDisplay && player.lat) {
+      coordsDisplay.textContent = `Lat: ${player.lat.toFixed(5)}, Lng: ${player.lng.toFixed(5)}`;
+    }
+
+    UI.showToast(`Teleported camera to ${player.nickname}`, 'info');
+  }
+
+  clearPlayerFocus() {
+    this.selectedPlayerId = null;
+    const card = document.getElementById('admin-map-player-focus-card');
+    if (card) card.style.display = 'none';
+    const select = document.getElementById('admin-map-player-select');
+    if (select) select.value = '';
+  }
+
+  spawnBotAtFocusedPlayer() {
+    if (!this.selectedPlayerId) {
+      UI.showToast('Please select a player first', 'warning');
+      return;
+    }
+    this.spawnBotAtPlayer(this.selectedPlayerId);
+  }
+
+  /**
+   * Spawns a testing bot directly near a player's coordinates with slight offset
+   */
+  spawnBotAtPlayer(playerId) {
+    const player = this.allPlayers.get(playerId);
+    if (!player) {
+      UI.showToast('Target player not found', 'danger');
+      return;
+    }
+
+    const baseLat = player.lat || 40.7580;
+    const baseLng = player.lng || -73.9855;
+
+    // Slight realistic offset (~15-25m) so they aren't stacked directly on top
+    const angle = Math.random() * 2 * Math.PI;
+    const distMeters = 15 + Math.random() * 10;
+    const deltaLat = (distMeters * Math.cos(angle)) / 111111;
+    const deltaLng = (distMeters * Math.sin(angle)) / (111111 * Math.cos(baseLat * Math.PI / 180));
+
+    const spawnLat = baseLat + deltaLat;
+    const spawnLng = baseLng + deltaLng;
+
+    // Smart opposite role for instant test interaction
+    const botRole = player.role === 'runner' ? 'seeker' : 'runner';
+    const botName = `Bot-${player.nickname.substring(0, 4)}-${Math.floor(Math.random() * 90 + 10)}`;
+
+    const bot = AdminBot.spawn(player.roomCode, botName, botRole, spawnLat, spawnLng);
+    UI.showToast(`🤖 Spawned ${botRole.toUpperCase()} bot "${botName}" ~20m from ${player.nickname}`, 'info');
+
+    this.updateMasterMapMarkers();
+    this.updateMapPlayerTeleportOptions();
+
+    // Pan map to reveal both
+    if (this.masterMap) {
+      this.masterMap.setView([spawnLat, spawnLng], 17, { animate: true });
+    }
+  }
+
+  swapFocusedPlayerRole() {
+    if (!this.selectedPlayerId) return;
+    const player = this.allPlayers.get(this.selectedPlayerId);
+    if (player) {
+      this.swapPlayerRole(player.roomCode, player.id, player.role);
+      setTimeout(() => this.teleportToPlayer(player.id), 100);
+    }
+  }
+
+  /**
+   * Start Interactive Tap-on-Map Bot Spawning Mode
+   */
+  startMapTapSpawnMode() {
+    const room = (document.getElementById('admin-bot-room-target')?.value || Game.roomCode || 'TEST').toUpperCase().trim();
+    const name = (document.getElementById('admin-bot-name')?.value || 'Bot-' + Math.floor(Math.random() * 1000)).trim();
+    const role = document.getElementById('admin-bot-role')?.value || 'runner';
+
+    this.pendingBotSpawn = { roomCode: room, nickname: name, role: role };
+    this.switchTab('map');
+
+    const banner = document.getElementById('admin-map-spawn-banner');
+    const bannerText = document.getElementById('admin-map-spawn-banner-text');
+    if (banner && bannerText) {
+      bannerText.textContent = `🎯 Tap map to drop ${role.toUpperCase()} bot "${name}" into Room ${room}`;
+      banner.style.display = 'flex';
+    }
+
+    UI.showToast(`🎯 Tap anywhere on map to drop bot "${name}"`, 'info');
+  }
+
+  cancelMapTapSpawnMode() {
+    this.pendingBotSpawn = null;
+    const banner = document.getElementById('admin-map-spawn-banner');
+    if (banner) banner.style.display = 'none';
   }
 
   onMasterMapClick(latlng) {
@@ -738,7 +1070,18 @@ class AdminEngine {
       coordsDisplay.textContent = `Lat: ${latlng.lat.toFixed(5)}, Lng: ${latlng.lng.toFixed(5)}`;
     }
 
-    // If bot placement mode is active, teleport selected bot
+    // 1. If in interactive tap-to-drop bot spawn mode:
+    if (this.pendingBotSpawn) {
+      const { roomCode, nickname, role } = this.pendingBotSpawn;
+      const bot = AdminBot.spawn(roomCode, nickname, role, latlng.lat, latlng.lng);
+      UI.showToast(`🤖 Bot "${nickname}" injected at ${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`, 'info');
+      this.cancelMapTapSpawnMode();
+      this.updateMasterMapMarkers();
+      this.updateMapPlayerTeleportOptions();
+      return;
+    }
+
+    // 2. If bot relocation mode is active:
     if (this.isMapPlacementMode && this.selectedBotId) {
       AdminBot.setBotLocation(this.selectedBotId, latlng.lat, latlng.lng);
       UI.showToast(`📍 Bot moved to ${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`, 'info');
@@ -766,7 +1109,7 @@ class AdminEngine {
   updateMasterMapMarkers() {
     if (!this.masterMap || typeof L === 'undefined') return;
 
-    const selectedRoom = document.getElementById('admin-map-room-filter')?.value || 'ALL';
+    const selectedRoom = this.selectedRoomCode || document.getElementById('admin-map-room-filter')?.value || 'ALL';
 
     // 1. Update/Add Player Markers
     for (const [playerId, player] of this.allPlayers.entries()) {
@@ -810,19 +1153,22 @@ class AdminEngine {
     });
 
     const popupContent = `
-      <div style="font-family:sans-serif; min-width:160px; color:#fff;">
+      <div style="font-family:sans-serif; min-width:180px; color:#fff;">
         <div style="font-weight:700; color:${color}; font-size:14px; margin-bottom:4px;">
           ${player.nickname} ${player.isHost ? '👑' : ''} ${player.isBot ? '🤖' : ''}
         </div>
         <div style="font-size:11px; color:#94a3b8; margin-bottom:6px;">
           Room: <b>${player.roomCode}</b> | Role: <b>${player.role.toUpperCase()}</b>
         </div>
-        <div style="font-size:11px; font-family:monospace; margin-bottom:8px;">
+        <div style="font-size:11px; font-family:monospace; margin-bottom:8px; color:#00f5b4;">
           ${player.lat.toFixed(5)}, ${player.lng.toFixed(5)}
         </div>
         <div style="display:flex; gap:4px; flex-wrap:wrap;">
           <button type="button" style="font-size:10px; padding:3px 6px; background:#1e293b; color:#fff; border:1px solid #475569; border-radius:4px; cursor:pointer;" onclick="Admin.swapPlayerRole('${player.roomCode}', '${player.id}', '${player.role}')">
             Swap Role
+          </button>
+          <button type="button" style="font-size:10px; padding:3px 6px; background:#38bdf8; color:#000; font-weight:700; border:none; border-radius:4px; cursor:pointer;" onclick="Admin.spawnBotAtPlayer('${player.id}')">
+            Spawn Bot Here
           </button>
           <button type="button" style="font-size:10px; padding:3px 6px; background:#ff4757; color:#fff; border:none; border-radius:4px; cursor:pointer;" onclick="Admin.confirmKickPlayer('${player.roomCode}', '${player.id}', '${player.nickname}')">
             Kick
@@ -885,14 +1231,101 @@ class AdminEngine {
   /* ==========================================================================
      TAB 4: BOT & TESTING SANDBOX
      ========================================================================== */
+  onBotRoomSelectChange(roomCode) {
+    const input = document.getElementById('admin-bot-room-target');
+    if (input && roomCode) input.value = roomCode;
+    this.updateBotPlayerSnapOptions(roomCode);
+  }
+
+  updateBotPlayerSnapOptions(roomCode) {
+    const select = document.getElementById('admin-bot-player-snap-select');
+    if (!select) return;
+
+    const targetRoom = (roomCode || document.getElementById('admin-bot-room-target')?.value || '').toUpperCase().trim();
+    let html = '<option value="">Select player in room...</option>';
+
+    let count = 0;
+    for (const p of this.allPlayers.values()) {
+      if (!targetRoom || p.roomCode === targetRoom) {
+        const icon = p.isBot ? '🤖' : (p.role === 'seeker' ? '🎯' : '🏃');
+        html += `<option value="${p.id}">${icon} ${p.nickname} (${p.role.toUpperCase()})</option>`;
+        count++;
+      }
+    }
+    if (count === 0) {
+      html += '<option value="" disabled>No players in room</option>';
+    }
+    select.innerHTML = html;
+  }
+
+  onBotPlayerSnapSelect(playerId) {
+    const coordsDisplay = document.getElementById('admin-bot-player-coords-display');
+    const coordsVal = document.getElementById('admin-bot-player-coords-val');
+    const latInput = document.getElementById('admin-bot-lat');
+    const lngInput = document.getElementById('admin-bot-lng');
+
+    if (!playerId) {
+      if (coordsDisplay) coordsDisplay.style.display = 'none';
+      return;
+    }
+
+    const player = this.allPlayers.get(playerId);
+    if (player && player.lat && player.lng) {
+      if (coordsDisplay) coordsDisplay.style.display = 'block';
+      if (coordsVal) coordsVal.textContent = `${player.lat.toFixed(5)}, ${player.lng.toFixed(5)}`;
+      if (latInput) latInput.value = player.lat.toFixed(5);
+      if (lngInput) lngInput.value = player.lng.toFixed(5);
+    }
+  }
+
+  spawnBotAtSelectedPlayer() {
+    const select = document.getElementById('admin-bot-player-snap-select');
+    const playerId = select?.value;
+    if (!playerId) {
+      UI.showToast('Please select a player to spawn bot at', 'warning');
+      return;
+    }
+    this.spawnBotAtPlayer(playerId);
+    this.renderBotsTab();
+  }
+
+  fillCurrentCoordsForBot() {
+    const latInput = document.getElementById('admin-bot-lat');
+    const lngInput = document.getElementById('admin-bot-lng');
+
+    const coords = Game.lastSelfCoords || { lat: 40.7580, lng: -73.9855 };
+    if (latInput) latInput.value = coords.lat.toFixed(5);
+    if (lngInput) lngInput.value = coords.lng.toFixed(5);
+    UI.showToast(`Set bot coordinates to my GPS (${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)})`, 'info');
+  }
+
   renderBotsTab() {
     const container = document.getElementById('admin-bots-list');
     if (!container) return;
 
     // Set default target room if blank
     const targetRoomInput = document.getElementById('admin-bot-room-target');
+    const targetRoomSelect = document.getElementById('admin-bot-room-target-select');
+
+    if (targetRoomSelect) {
+      let opts = '<option value="">Select Active Room...</option>';
+      for (const rCode of this.rooms.keys()) {
+        opts += `<option value="${rCode}">Room: ${rCode}</option>`;
+      }
+      targetRoomSelect.innerHTML = opts;
+    }
+
     if (targetRoomInput && !targetRoomInput.value && this.rooms.size > 0) {
-      targetRoomInput.value = Array.from(this.rooms.keys())[0];
+      const firstRoom = Array.from(this.rooms.keys())[0];
+      targetRoomInput.value = firstRoom;
+      if (targetRoomSelect) targetRoomSelect.value = firstRoom;
+    }
+
+    this.updateBotPlayerSnapOptions(targetRoomInput?.value);
+
+    const countBadge = document.getElementById('admin-bots-count-badge');
+    if (countBadge) {
+      countBadge.textContent = `${AdminBot.bots.length} Active Bots`;
     }
 
     if (AdminBot.bots.length === 0) {
@@ -936,7 +1369,7 @@ class AdminEngine {
             <span class="admin-meta-val">${motionLabel}</span>
           </div>
 
-          <div class="admin-card-actions" style="margin-top:12px;">
+          <div class="admin-bot-actions-grid">
             <button type="button" class="admin-action-btn ${bot.mode === 'patrol' ? 'btn-warning' : 'btn-primary'}" onclick="AdminBot.togglePatrol('${bot.id}')">
               ${bot.mode === 'patrol' ? '🛑 Freeze' : '🚶 Patrol'}
             </button>
@@ -1310,6 +1743,20 @@ class AdminBotManager {
     Admin.allPlayers.delete(botId);
     Admin.removeMapMarker(botId);
     UI.showToast(`Despawned ${bot.nickname}`, 'info');
+  }
+
+  despawnAll() {
+    if (this.bots.length === 0) {
+      UI.showToast('No active bots to despawn', 'info');
+      return;
+    }
+    const total = this.bots.length;
+    while (this.bots.length > 0) {
+      this.despawn(this.bots[0].id);
+    }
+    UI.showToast(`Despawned all ${total} bots`, 'info');
+    Admin.renderBotsTab();
+    Admin.updateMasterMapMarkers();
   }
 }
 

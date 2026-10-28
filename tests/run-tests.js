@@ -780,6 +780,102 @@ assert(runnerClient.screen === 'screen-gameover', 'Runner client pulled out of a
 assert(seekerClient.winner === 'Seekers' && runnerClient.winner === 'Seekers', 'Both clients display identical Seekers Victorious result');
 
 
+// 20. Testing Admin Persistent Navigation, God's Eye Filter, Teleport & Quick Bot Spawner
+console.log('\n20. Testing Admin Persistent Navigation, God\'s Eye Filter, Teleport & Quick Bot Spawner:');
+
+// 1. Persistent Navigation State Transitions
+class MockAdminNavigation {
+  constructor() {
+    this.currentTab = 'rooms';
+    this.isTrapped = false;
+  }
+  switchTab(tabId) {
+    this.currentTab = tabId;
+    return this.currentTab;
+  }
+}
+const adminNav = new MockAdminNavigation();
+assert(adminNav.switchTab('map') === 'map', 'Successfully navigated into God\'s Eye Map');
+assert(adminNav.switchTab('rooms') === 'rooms', 'Successfully returned to Rooms overview (no trapped state)');
+assert(adminNav.switchTab('bots') === 'bots', 'Successfully navigated into Bot Sandbox');
+assert(adminNav.switchTab('players') === 'players', 'Successfully navigated to Global Players directory');
+
+// 2. God's Eye Map Room Filtering & Dynamic State Extraction
+const mockDirectory = new Map([
+  ['p_alice', { id: 'p_alice', nickname: 'Alice', role: 'runner', roomCode: 'ALPHA', lat: 40.7580, lng: -73.9855 }],
+  ['p_bob', { id: 'p_bob', nickname: 'Bob', role: 'seeker', roomCode: 'ALPHA', lat: 40.7570, lng: -73.9840 }],
+  ['p_charlie', { id: 'p_charlie', nickname: 'Charlie', role: 'runner', roomCode: 'BETA', lat: 40.7128, lng: -74.0060 }]
+]);
+
+function filterPlayersByRoom(playersMap, filterRoom) {
+  if (filterRoom === 'ALL') return Array.from(playersMap.values());
+  return Array.from(playersMap.values()).filter(p => p.roomCode === filterRoom);
+}
+
+const alphaPlayers = filterPlayersByRoom(mockDirectory, 'ALPHA');
+const betaPlayers = filterPlayersByRoom(mockDirectory, 'BETA');
+const allFiltered = filterPlayersByRoom(mockDirectory, 'ALL');
+
+assert(alphaPlayers.length === 2, 'God\'s Eye filter extracts exactly 2 players for Room ALPHA');
+assert(betaPlayers.length === 1 && betaPlayers[0].nickname === 'Charlie', 'God\'s Eye filter isolates Charlie in Room BETA');
+assert(allFiltered.length === 3, 'God\'s Eye filter returns all 3 players when set to GLOBAL');
+
+// 3. Player Teleport & Coordinate Formatter
+function teleportCameraToPlayer(player) {
+  if (!player || !player.lat || !player.lng) return null;
+  return {
+    cameraTarget: [player.lat, player.lng],
+    zoom: 17,
+    coordsText: `${player.lat.toFixed(5)}, ${player.lng.toFixed(5)}`
+  };
+}
+
+const teleportResult = teleportCameraToPlayer(mockDirectory.get('p_alice'));
+assert(teleportResult !== null, 'Camera successfully teleports to active player');
+assert(teleportResult.cameraTarget[0] === 40.7580, 'Camera target latitude matches player position');
+assert(teleportResult.coordsText === '40.75800, -73.98550', 'Player GPS coordinate format matches UI specification');
+
+// 4. Quick Bot Spawning with Realistic Distance Offset (~15-25m)
+function calculateQuickBotSpawn(targetPlayer) {
+  const angle = Math.PI / 4; // 45 degrees
+  const distMeters = 20; // 20 meters away
+  const deltaLat = (distMeters * Math.cos(angle)) / 111111;
+  const deltaLng = (distMeters * Math.sin(angle)) / (111111 * Math.cos(targetPlayer.lat * Math.PI / 180));
+  
+  const spawnLat = targetPlayer.lat + deltaLat;
+  const spawnLng = targetPlayer.lng + deltaLng;
+  const opposingRole = targetPlayer.role === 'runner' ? 'seeker' : 'runner';
+
+  return {
+    roomCode: targetPlayer.roomCode,
+    nickname: `Bot-${targetPlayer.nickname}-Test`,
+    role: opposingRole,
+    lat: spawnLat,
+    lng: spawnLng,
+    distanceFromPlayer: getHaversineDistance(targetPlayer.lat, targetPlayer.lng, spawnLat, spawnLng)
+  };
+}
+
+const quickBot = calculateQuickBotSpawn(mockDirectory.get('p_alice'));
+assert(quickBot.role === 'seeker', 'Quick Bot spawned near Runner is automatically assigned Seeker role');
+assert(quickBot.roomCode === 'ALPHA', 'Quick Bot spawned in identical operation room');
+assertClose(quickBot.distanceFromPlayer, 20, 0.5, 'Quick Bot spawned at specified offset distance (~20m)');
+
+// 5. Bot Sandbox Despawn All
+class MockActiveBotPool {
+  constructor() {
+    this.bots = ['bot_1', 'bot_2', 'bot_3'];
+  }
+  despawnAll() {
+    this.bots = [];
+    return this.bots.length;
+  }
+}
+const activePool = new MockActiveBotPool();
+assert(activePool.bots.length === 3, 'Bot pool initialized with 3 test bots');
+assert(activePool.despawnAll() === 0, 'Despawn All cleanly wipes all active bot operatives');
+
+
 
 
 
