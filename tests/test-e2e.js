@@ -24,14 +24,36 @@ async function runE2ETests() {
     console.log('[1] Loading Manhunt application...');
     await page.goto('http://localhost:8080/', { waitUntil: 'networkidle' });
 
-    // 2. Dismiss onboarding modal
-    console.log('[2] Checking Operation Readiness onboarding modal...');
+    // 2. Test Device Selection Modal (Android vs iPhone)
+    console.log('[2] Testing Device Platform Selection Modal...');
+    const deviceModal = page.locator('#modal-device-select');
+    await deviceModal.waitFor({ state: 'visible', timeout: 3000 });
+    console.log('    ✅ Device Platform modal appeared on first visit');
+
+    // Click Android
+    await page.locator('#btn-select-android').click();
+    const androidStep = page.locator('#device-step-android');
+    await androidStep.waitFor({ state: 'visible', timeout: 2000 });
+    console.log('    ✅ Android installation prompt displayed');
+
+    const downloadLink = page.locator('#btn-download-apk');
+    const href = await downloadLink.getAttribute('href');
+    const downloadAttr = await downloadLink.getAttribute('download');
+    console.log(`    ✅ Download APK button configured: href="${href}", download="${downloadAttr}"`);
+    if (!href.includes('Manhunt.apk')) throw new Error('Download link missing Manhunt.apk');
+
+    // Test "No, play in browser"
+    await page.locator('#btn-android-browser').click();
+    await deviceModal.waitFor({ state: 'hidden', timeout: 2000 });
+    console.log('    ✅ "Play in browser" smoothly transitions to game lobby');
+
+    // Dismiss onboarding readiness modal if it appears
     const onboardingModal = page.locator('#modal-onboarding');
-    await onboardingModal.waitFor({ state: 'visible', timeout: 3000 });
-    const dismissBtn = page.locator('#btn-dismiss-onboarding');
-    await dismissBtn.click();
-    await onboardingModal.waitFor({ state: 'hidden', timeout: 2000 });
-    console.log('    ✅ Readiness modal appeared and dismissed cleanly');
+    if (await onboardingModal.isVisible({ timeout: 1500 }).catch(() => false)) {
+      await page.locator('#btn-dismiss-onboarding').click();
+      await onboardingModal.waitFor({ state: 'hidden', timeout: 2000 });
+      console.log('    ✅ Readiness modal dismissed cleanly');
+    }
 
     // 3. Configure Lobby & Create Room
     console.log('[3] Creating Tactical Operation as Seeker...');

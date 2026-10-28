@@ -27,6 +27,14 @@ class UIManager {
   }
 
   checkOnboardingReadiness() {
+    // If opening on the web/GitHub page and device hasn't been chosen yet
+    if (!window.AndroidNative && !sessionStorage.getItem('manhunt_device_prompted')) {
+      setTimeout(() => {
+        this.openPlatformModal();
+      }, 400);
+      return;
+    }
+
     const onboarded = localStorage.getItem('manhunt_onboarded_v2');
     if (!onboarded) {
       setTimeout(() => {
@@ -34,6 +42,20 @@ class UIManager {
       }, 500);
     }
     this.refreshReadinessBadges();
+  }
+
+  openPlatformModal() {
+    const stepChoose = document.getElementById('device-step-choose');
+    const stepAndroid = document.getElementById('device-step-android');
+    const stepIos = document.getElementById('device-step-ios');
+    const toast = document.getElementById('android-download-toast');
+
+    if (stepChoose) stepChoose.style.display = 'block';
+    if (stepAndroid) stepAndroid.style.display = 'none';
+    if (stepIos) stepIos.style.display = 'none';
+    if (toast) toast.style.display = 'none';
+
+    this.showModal('modal-device-select');
   }
 
   refreshReadinessBadges() {
@@ -910,6 +932,106 @@ class UIManager {
     if (capturedCloseBtn) {
       capturedCloseBtn.onclick = () => {
         document.getElementById('modal-captured').style.display = 'none';
+      };
+    }
+
+    // Platform & Device Selector Handlers
+    const openInstallBtn = document.getElementById('btn-open-install-modal');
+    if (openInstallBtn) openInstallBtn.onclick = () => this.openPlatformModal();
+
+    const selectAndroidBtn = document.getElementById('btn-select-android');
+    if (selectAndroidBtn) {
+      selectAndroidBtn.onclick = () => {
+        const stepChoose = document.getElementById('device-step-choose');
+        const stepAndroid = document.getElementById('device-step-android');
+        if (stepChoose) stepChoose.style.display = 'none';
+        if (stepAndroid) stepAndroid.style.display = 'block';
+      };
+    }
+
+    const selectIosBtn = document.getElementById('btn-select-ios');
+    if (selectIosBtn) {
+      selectIosBtn.onclick = () => {
+        const stepChoose = document.getElementById('device-step-choose');
+        const stepIos = document.getElementById('device-step-ios');
+        if (stepChoose) stepChoose.style.display = 'none';
+        if (stepIos) stepIos.style.display = 'block';
+      };
+    }
+
+    const backChooseAndroid = document.getElementById('btn-back-to-choose-android');
+    if (backChooseAndroid) {
+      backChooseAndroid.onclick = () => {
+        const stepChoose = document.getElementById('device-step-choose');
+        const stepAndroid = document.getElementById('device-step-android');
+        if (stepChoose) stepChoose.style.display = 'block';
+        if (stepAndroid) stepAndroid.style.display = 'none';
+      };
+    }
+
+    const backChooseIos = document.getElementById('btn-back-to-choose-ios');
+    if (backChooseIos) {
+      backChooseIos.onclick = () => {
+        const stepChoose = document.getElementById('device-step-choose');
+        const stepIos = document.getElementById('device-step-ios');
+        if (stepChoose) stepChoose.style.display = 'block';
+        if (stepIos) stepIos.style.display = 'none';
+      };
+    }
+
+    const downloadApkBtn = document.getElementById('btn-download-apk');
+    if (downloadApkBtn) {
+      downloadApkBtn.onclick = () => {
+        sessionStorage.setItem('manhunt_device_prompted', 'true');
+        const toast = document.getElementById('android-download-toast');
+        if (toast) toast.style.display = 'block';
+        this.showToast('📥 Downloading Manhunt.apk... Check your notifications to install.', 'info');
+      };
+    }
+
+    const androidBrowserBtn = document.getElementById('btn-android-browser');
+    if (androidBrowserBtn) {
+      androidBrowserBtn.onclick = () => {
+        sessionStorage.setItem('manhunt_device_prompted', 'true');
+        this.closeModal('modal-device-select');
+        this.showToast('Playing in mobile browser mode', 'info');
+        if (!localStorage.getItem('manhunt_onboarded_v2')) {
+          this.showModal('modal-onboarding');
+        }
+      };
+    }
+
+    const androidContinueBtn = document.getElementById('btn-android-continue-game');
+    if (androidContinueBtn) {
+      androidContinueBtn.onclick = () => {
+        sessionStorage.setItem('manhunt_device_prompted', 'true');
+        this.closeModal('modal-device-select');
+        if (!localStorage.getItem('manhunt_onboarded_v2')) {
+          this.showModal('modal-onboarding');
+        }
+      };
+    }
+
+    const iosPlaySafariBtn = document.getElementById('btn-ios-play-safari');
+    if (iosPlaySafariBtn) {
+      iosPlaySafariBtn.onclick = () => {
+        sessionStorage.setItem('manhunt_device_prompted', 'true');
+        this.closeModal('modal-device-select');
+        this.showToast('Playing in Safari iOS mode', 'info');
+        if (!localStorage.getItem('manhunt_onboarded_v2')) {
+          this.showModal('modal-onboarding');
+        }
+      };
+    }
+
+    const skipPlatformBtn = document.getElementById('btn-skip-platform');
+    if (skipPlatformBtn) {
+      skipPlatformBtn.onclick = () => {
+        sessionStorage.setItem('manhunt_device_prompted', 'true');
+        this.closeModal('modal-device-select');
+        if (!localStorage.getItem('manhunt_onboarded_v2')) {
+          this.showModal('modal-onboarding');
+        }
       };
     }
   }

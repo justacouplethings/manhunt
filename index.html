@@ -90,6 +90,9 @@
 
         <!-- Footer Shortcuts -->
         <div class="lobby-footer">
+          <button type="button" id="btn-open-install-modal" class="text-btn">
+            <span>📲</span> Install App (Android / iPhone)
+          </button>
           <button type="button" id="btn-open-settings" class="text-btn">
             <span>⚙️</span> Match Settings & Themes
           </button>
@@ -657,6 +660,135 @@
         <button type="button" id="btn-dismiss-onboarding" class="btn-primary">
           <span>🚀</span> ALL SET - LET'S HUNT
         </button>
+      </div>
+    </div>
+
+    <!-- Device Platform & Installation Modal -->
+    <div id="modal-device-select" class="modal-backdrop">
+      <div class="modal-content" style="max-width:440px; text-align:center;">
+        
+        <!-- Step 1: Choose Platform (Android or iPhone) -->
+        <div id="device-step-choose">
+          <div style="font-size:2.8rem; margin-bottom:8px;">📱</div>
+          <h2 style="font-size:1.3rem; font-weight:900; letter-spacing:-0.02em; margin-bottom:6px;">CHOOSE YOUR DEVICE</h2>
+          <p style="color:var(--theme-text-secondary); font-size:0.85rem; margin-bottom:20px; line-height:1.5;">
+            Select which device you are playing on to get the optimal experience:
+          </p>
+
+          <div style="display:flex; flex-direction:column; gap:12px; margin-bottom:16px;">
+            <!-- Android Option -->
+            <button type="button" id="btn-select-android" class="platform-select-card">
+              <span style="font-size:2rem;">🤖</span>
+              <div style="text-align:left; flex:1;">
+                <div style="font-weight:900; font-size:1rem; color:var(--theme-primary);">Android Device</div>
+                <div style="font-size:0.75rem; color:var(--theme-text-secondary);">Samsung, Pixel, Motorola, Xiaomi, etc.</div>
+              </div>
+              <span class="status-badge status-online">APK READY</span>
+            </button>
+
+            <!-- iPhone Option -->
+            <button type="button" id="btn-select-ios" class="platform-select-card">
+              <span style="font-size:2rem;">🍏</span>
+              <div style="text-align:left; flex:1;">
+                <div style="font-weight:900; font-size:1rem; color:var(--theme-accent-cyan);">Apple iPhone / iPad</div>
+                <div style="font-size:0.75rem; color:var(--theme-text-secondary);">iOS Safari • Standalone Home Screen App</div>
+              </div>
+              <span class="status-badge" style="background:rgba(0,212,255,0.15); color:var(--theme-accent-cyan); border:1px solid rgba(0,212,255,0.4);">FREE PWA</span>
+            </button>
+          </div>
+
+          <button type="button" id="btn-skip-platform" class="text-btn" style="font-size:0.8rem; opacity:0.8;">
+            Continue on PC / Browser →
+          </button>
+        </div>
+
+        <!-- Step 2: Android Prompt (Install APK or Play in Browser) -->
+        <div id="device-step-android" style="display:none;">
+          <div style="font-size:2.8rem; margin-bottom:8px;">🤖</div>
+          <h2 style="font-size:1.3rem; font-weight:900; letter-spacing:-0.02em; margin-bottom:6px;">INSTALL ANDROID APP?</h2>
+          <p style="color:var(--theme-text-secondary); font-size:0.85rem; margin-bottom:18px; line-height:1.5;">
+            Would you like to install the official Android App (APK)? Installing allows background GPS pursuit and proximity alarms when your phone is in your pocket.
+          </p>
+
+          <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:14px;">
+            <a href="./Manhunt.apk" download="Manhunt.apk" id="btn-download-apk" class="btn-primary" style="text-decoration:none; display:flex; align-items:center; justify-content:center; gap:8px;">
+              <span>📥</span> YES, DOWNLOAD & INSTALL APP
+            </a>
+
+            <button type="button" id="btn-android-browser" class="btn-secondary">
+              <span>🌐</span> NO, PLAY IN BROWSER
+            </button>
+          </div>
+
+          <div id="android-download-toast" style="display:none; font-size:0.75rem; color:var(--theme-primary); background:rgba(0,245,180,0.08); border:1px solid rgba(0,245,180,0.3); border-radius:var(--radius-md); padding:10px; line-height:1.4; margin-bottom:10px;">
+            ✅ <strong>Download started!</strong> Open <code>Manhunt.apk</code> in your Downloads or notifications to install. You can also continue playing below.
+          </div>
+
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+            <button type="button" id="btn-back-to-choose-android" class="text-btn" style="font-size:0.8rem;">
+              ← Back
+            </button>
+            <button type="button" id="btn-android-continue-game" class="text-btn" style="font-size:0.8rem; color:var(--theme-primary);">
+              Continue to Game →
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 3: iPhone / iOS Guidance (Add to Home Screen) -->
+        <div id="device-step-ios" style="display:none; text-align:left;">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+            <span style="font-size:2rem;">🍏</span>
+            <div>
+              <h2 style="font-size:1.2rem; font-weight:900;">INSTALL ON IPHONE</h2>
+              <div style="font-size:0.75rem; color:var(--theme-text-secondary);">3-Second Safari Home Screen App</div>
+            </div>
+          </div>
+
+          <p style="color:var(--theme-text-secondary); font-size:0.82rem; margin-bottom:14px; line-height:1.5;">
+            Follow these steps to install Manhunt on your iPhone home screen:
+          </p>
+
+          <div style="display:flex; flex-direction:column; gap:10px; margin-bottom:18px;">
+            <div class="readiness-item" style="padding:10px 12px;">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span style="font-size:1.4rem;">1️⃣</span>
+                <div>
+                  <div style="font-weight:800; font-size:0.85rem;">Tap the Share Button</div>
+                  <div style="font-size:0.72rem; color:var(--theme-text-secondary);">Tap the square with up-arrow (<code>⬆️</code>) at the bottom of Safari</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="readiness-item" style="padding:10px 12px;">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span style="font-size:1.4rem;">2️⃣</span>
+                <div>
+                  <div style="font-weight:800; font-size:0.85rem;">Tap "Add to Home Screen"</div>
+                  <div style="font-size:0.72rem; color:var(--theme-text-secondary);">Scroll down in the share menu and tap <code>➕ Add to Home Screen</code></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="readiness-item" style="padding:10px 12px;">
+              <div style="display:flex; align-items:center; gap:10px;">
+                <span style="font-size:1.4rem;">3️⃣</span>
+                <div>
+                  <div style="font-weight:800; font-size:0.85rem;">Tap "Add" in Top Right</div>
+                  <div style="font-size:0.72rem; color:var(--theme-text-secondary);">Manhunt will appear on your home screen and open in full-screen standalone mode</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <button type="button" id="btn-ios-play-safari" class="btn-primary" style="width:100%; justify-content:center;">
+            <span>🚀</span> PLAY IN SAFARI NOW
+          </button>
+
+          <button type="button" id="btn-back-to-choose-ios" class="text-btn" style="margin-top:12px; width:100%; text-align:center; font-size:0.8rem;">
+            ← Back to Device Choice
+          </button>
+        </div>
+
       </div>
     </div>
 
