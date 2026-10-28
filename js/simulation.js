@@ -115,7 +115,20 @@ class SimulationEngine {
           isPingSnapshot: false
         });
       } else if (bot.role === 'runner') {
-        // Runners only ping when their timer expires
+        // Continuous live telemetry for runner teammates
+        Game.onRemoteTelemetry({
+          playerId: bot.id,
+          nickname: bot.nickname,
+          lat: bot.lat,
+          lng: bot.lng,
+          role: 'runner',
+          speed: bot.speed,
+          heading: bot.heading,
+          isLiveRunnerBroadcast: true,
+          isPingSnapshot: false
+        });
+
+        // Periodic ping snapshot visible to Seekers
         bot.pingTimer--;
         if (bot.pingTimer <= 0) {
           bot.pingTimer = 20; // Simulated ping cycle: 20s
@@ -127,6 +140,7 @@ class SimulationEngine {
             role: 'runner',
             speed: bot.speed,
             heading: bot.heading,
+            isLiveRunnerBroadcast: false,
             isPingSnapshot: true
           });
         }

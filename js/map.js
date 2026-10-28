@@ -247,6 +247,23 @@ class TacticalMap {
     }
   }
 
+  clearAllPeers() {
+    if (this.map) {
+      for (const marker of this.playerMarkers.values()) {
+        try { this.map.removeLayer(marker); } catch (e) {}
+      }
+      for (const polyline of this.breadcrumbPaths.values()) {
+        try { this.map.removeLayer(polyline); } catch (e) {}
+      }
+      if (this.boundaryCircle) {
+        try { this.map.removeLayer(this.boundaryCircle); } catch (e) {}
+        this.boundaryCircle = null;
+      }
+    }
+    this.playerMarkers.clear();
+    this.breadcrumbPaths.clear();
+  }
+
   recenter() {
     this.autoFollowSelf = true;
     if (this.selfMarker) {

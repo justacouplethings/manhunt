@@ -44,6 +44,57 @@ class ManhuntGame {
     this.boundaryRadiusMeters = 1500;
     this.isOutOfBounds = false;
     this.lastFlareTimestamp = 0;
+    this.lastRunnerLiveSend = 0;
+  }
+
+  /**
+   * Completely clears match state, stale players, bot telemetry, and map markers
+   */
+  resetMatchState() {
+    if (this.gameLoopInterval) {
+      clearInterval(this.gameLoopInterval);
+      this.gameLoopInterval = null;
+    }
+    this.isPaused = false;
+    this.isTagged = false;
+    this.isOutOfBounds = false;
+    this.boundaryCenter = null;
+    this.boundaryRadiusMeters = Config.settings.boundaryRadiusMeters || 1500;
+    this.lockedTargetId = null;
+    this.pendingTagRequest = null;
+    this.lastSeekerSend = 0;
+    this.lastRunnerLiveSend = 0;
+    this.lastRunnerPingTime = 0;
+    this.lastFlareTimestamp = 0;
+    this.nearestOpponentDistance = null;
+    this.nearestOpponentBearing = null;
+    this.nearestOpponentName = '';
+
+    // Clear collections
+    this.lastKnownPositions.clear();
+    this.taggedRunners.clear();
+    this.activeRunners.clear();
+    this.activeSeekers.clear();
+
+    // Clear network peers
+    if (typeof Network !== 'undefined' && Network.peers) {
+      Network.peers.clear();
+    }
+
+    // Clear map markers & breadcrumbs
+    if (typeof MapController !== 'undefined' && MapController.clearAllPeers) {
+      MapController.clearAllPeers();
+    }
+
+    // Stop sandbox bots if active
+    if (typeof Simulation !== 'undefined' && Simulation.isActive) {
+      Simulation.stop();
+    }
+
+    // Reset UI
+    if (typeof UI !== 'undefined' && UI.resetMatchUI) {
+      UI.resetMatchUI();
+    }
   }
 
   init() {
@@ -144,6 +195,7 @@ class ManhuntGame {
    * Host creates a new room
    */
   createRoom(nickname, role) {
+    this.resetMatchState();
     this.roomCode = NetworkEngine.generateRoomCode();
     this.nickname = nickname || 'Host';
     this.role = role || 'runner';
@@ -163,6 +215,7 @@ class ManhuntGame {
    * Player joins an existing room
    */
   joinRoom(roomCode, nickname, role) {
+    this.resetMatchState();
     this.roomCode = roomCode.toUpperCase().trim();
     this.nickname = nickname || 'Player';
     this.role = role || 'runner';
@@ -581,6 +634,26 @@ class ManhuntGame {
       }
     }
 
+    // 1. Continuous Live Telemetry for Runners (Other runners track squad teammates live in real-time)
+    if (this.role === 'runner' && (this.state === 'ACTIVE' || this.state === 'GRACE_PERIOD') && !this.isTagged) {
+      const now = Date.now();
+      if (now - (this.lastRunnerLiveSend || 0) >= 2000) {
+        this.lastRunnerLiveSend = now;
+        Network.broadcast('telemetry', {
+          lat: coords.lat,
+          lng: coords.lng,
+          role: 'runner',
+          isLiveRunnerBroadcast: true,
+          isPingSnapshot: false,
+          speed: coords.speed,
+          heading: coords.heading,
+          nickname: this.nickname,
+          timestamp: now
+        });
+      }
+    }
+
+    // 2. Seeker Continuous Live Telemetry (when configured for live mode)
     if (this.role === 'seeker' && this.state === 'ACTIVE' && Config.settings.seekerTrackingMode === 'live') {
       const now = Date.now();
       if (now - (this.lastSeekerSend || 0) >= (Config.settings.seekerPingInterval * 1000)) {
@@ -599,8 +672,7 @@ class ManhuntGame {
   }
 
   onRemoteTelemetry(data) {
-    const { playerId, lat, lng, role, isPingSnapshot, isReconSweep, nickname } = data;
-    this.lastKnownPositions.set(playerId, { lat, lng, role, timestamp: Date.now(), nickname });
+    const { playerId, lat, lng, role, isPingSnapshot, isReconSweep, isLiveRunnerBroadcast, nickname } = data;
 
     if (role === 'runner' && !this.taggedRunners.has(playerId)) {
       this.activeRunners.add(playerId);
@@ -608,20 +680,35 @@ class ManhuntGame {
       this.activeSeekers.add(playerId);
     }
 
-    const isLiveSeeker = Config.settings.seekerTrackingMode === 'live';
-    if (role === 'seeker') {
-      if (isLiveSeeker || isPingSnapshot || isReconSweep || this.role === 'seeker') {
-        MapController.updatePeerLocation(playerId, lat, lng, 'seeker', nickname || 'Seeker', isPingSnapshot || isReconSweep);
-      }
-    } else if (role === 'runner') {
-      if (isPingSnapshot || isReconSweep || this.role === 'runner') {
-        MapController.updatePeerLocation(playerId, lat, lng, 'runner', nickname || 'Runner', true);
+    if (role === 'runner') {
+      if (this.role === 'runner') {
+        // RUNNER PERSPECTIVE:
+        // Runners see their own location and the locations of ALL other runners in real-time (live tracking)!
+        this.lastKnownPositions.set(playerId, { lat, lng, role, timestamp: Date.now(), nickname });
+        MapController.updatePeerLocation(playerId, lat, lng, 'runner', nickname || 'Runner', isPingSnapshot || isReconSweep);
         if (isPingSnapshot || isReconSweep) {
           UI.playAudioCue('radar-blip');
           if (data.isManualFlare) {
-            UI.showToast(`📍 Tactical Flare fired by ${nickname || 'Runner'}!`, 'warning');
+            UI.showToast(`📍 Teammate ${nickname || 'Runner'} fired a flare!`, 'warning');
           }
         }
+      } else if (this.role === 'seeker') {
+        // SEEKER PERSPECTIVE:
+        // Seekers ONLY receive location updates for runners strictly based on the host's ping interval, flares, or recon sweeps!
+        if (isPingSnapshot || isReconSweep || data.isManualFlare) {
+          this.lastKnownPositions.set(playerId, { lat, lng, role, timestamp: Date.now(), nickname });
+          MapController.updatePeerLocation(playerId, lat, lng, 'runner', nickname || 'Runner', true);
+          UI.playAudioCue('radar-blip');
+          if (data.isManualFlare) {
+            UI.showToast(`📍 Runner ${nickname || 'Runner'} fired an emergency flare!`, 'warning');
+          }
+        }
+      }
+    } else if (role === 'seeker') {
+      this.lastKnownPositions.set(playerId, { lat, lng, role, timestamp: Date.now(), nickname });
+      const isLiveSeeker = Config.settings.seekerTrackingMode === 'live';
+      if (isLiveSeeker || isPingSnapshot || isReconSweep || this.role === 'seeker') {
+        MapController.updatePeerLocation(playerId, lat, lng, 'seeker', nickname || 'Seeker', isPingSnapshot || isReconSweep);
       }
     }
 
@@ -1014,12 +1101,9 @@ class ManhuntGame {
   }
 
   leaveMatch() {
-    if (this.gameLoopInterval) clearInterval(this.gameLoopInterval);
-    this.isPaused = false;
-    this.lockedTargetId = null;
-    this.pendingTagRequest = null;
     Geo.stopTracking();
     Network.disconnect();
+    this.resetMatchState();
     this.state = 'LOBBY';
     UI.releaseWakeLock();
     UI.setPauseState(false);

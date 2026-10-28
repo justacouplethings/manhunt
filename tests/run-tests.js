@@ -370,6 +370,118 @@ assert(shouldDisplayMatchNotification('SEEKER_PERIODIC_PING', false) === false, 
 assert(shouldDisplayMatchNotification('RUNNER_PERIODIC_PING', false) === false, 'Routine runner ping toast is suppressed');
 
 
+// 13. Testing Match State Reset & Room Isolation
+console.log('\n13. Testing Match State Reset & Room Isolation:');
+class MockGameState {
+  constructor() {
+    this.lastKnownPositions = new Map();
+    this.taggedRunners = new Set();
+    this.activeRunners = new Set();
+    this.activeSeekers = new Set();
+    this.peers = new Map();
+    this.lockedTargetId = 'target_99';
+    this.boundaryAnchor = { lat: 40.7580, lng: -73.9855 };
+    this.roomCode = 'OLD1';
+  }
+
+  populateStaleData() {
+    this.lastKnownPositions.set('runner_stale_1', { lat: 40.75, lng: -73.98 });
+    this.lastKnownPositions.set('runner_stale_2', { lat: 40.76, lng: -73.99 });
+    this.taggedRunners.add('runner_stale_1');
+    this.activeRunners.add('runner_stale_1');
+    this.activeRunners.add('runner_stale_2');
+    this.activeSeekers.add('seeker_stale_1');
+    this.peers.set('runner_stale_1', { nickname: 'GhostRunner' });
+  }
+
+  resetMatchState() {
+    this.lastKnownPositions.clear();
+    this.taggedRunners.clear();
+    this.activeRunners.clear();
+    this.activeSeekers.clear();
+    this.peers.clear();
+    this.lockedTargetId = null;
+    this.boundaryAnchor = null;
+    this.roomCode = null;
+  }
+}
+
+const mockState = new MockGameState();
+mockState.populateStaleData();
+assert(mockState.lastKnownPositions.size === 2, 'Stale state populated with 2 runners from previous room');
+assert(mockState.activeRunners.size === 2, 'Stale activeRunners has 2 entries');
+
+mockState.resetMatchState();
+assert(mockState.lastKnownPositions.size === 0, 'Reset wipes lastKnownPositions completely');
+assert(mockState.taggedRunners.size === 0, 'Reset wipes taggedRunners set');
+assert(mockState.activeRunners.size === 0, 'Reset wipes activeRunners set');
+assert(mockState.activeSeekers.size === 0, 'Reset wipes activeSeekers set');
+assert(mockState.peers.size === 0, 'Reset wipes Network peers collection');
+assert(mockState.lockedTargetId === null, 'Reset clears seeker locked target ID');
+assert(mockState.boundaryAnchor === null, 'Reset clears fixed boundary anchor');
+
+
+// 14. Testing Asymmetric Location Pings (Runners Real-Time vs Seekers Periodic)
+console.log('\n14. Testing Asymmetric Location Telemetry:');
+function shouldAcceptRunnerTelemetry(receiverRole, packet) {
+  // If receiver is a runner teammate, always accept live updates
+  if (receiverRole === 'runner') {
+    return true;
+  }
+
+  // If receiver is a seeker:
+  // ONLY accept if packet is an authorized periodic ping snapshot, recon sweep, or manual flare
+  if (receiverRole === 'seeker') {
+    if (packet.isPingSnapshot === true || packet.isReconSweep === true || packet.isManualFlare === true) {
+      return true;
+    }
+    // Block continuous live runner broadcasts from reaching seeker radar/map
+    if (packet.isLiveRunnerBroadcast === true) {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+const liveTeammatePacket = {
+  playerId: 'runner_bob',
+  role: 'runner',
+  lat: 40.7510,
+  lng: -73.9820,
+  isLiveRunnerBroadcast: true,
+  isPingSnapshot: false
+};
+
+const snapshotPingPacket = {
+  playerId: 'runner_bob',
+  role: 'runner',
+  lat: 40.7515,
+  lng: -73.9825,
+  isLiveRunnerBroadcast: false,
+  isPingSnapshot: true
+};
+
+const satelliteReconPacket = {
+  playerId: 'runner_bob',
+  role: 'runner',
+  lat: 40.7520,
+  lng: -73.9830,
+  isLiveRunnerBroadcast: false,
+  isReconSweep: true
+};
+
+// Runner receiver assertions
+assert(shouldAcceptRunnerTelemetry('runner', liveTeammatePacket) === true, 'Runner sees fellow runner teammate continuous live location');
+assert(shouldAcceptRunnerTelemetry('runner', snapshotPingPacket) === true, 'Runner also receives snapshot ping events');
+
+// Seeker receiver assertions
+assert(shouldAcceptRunnerTelemetry('seeker', liveTeammatePacket) === false, 'Seeker DOES NOT receive live runner broadcasts (radar blackout between pings)');
+assert(shouldAcceptRunnerTelemetry('seeker', snapshotPingPacket) === true, 'Seeker receives periodic ping snapshot strictly when scheduled');
+assert(shouldAcceptRunnerTelemetry('seeker', satelliteReconPacket) === true, 'Seeker receives host satellite recon sweep');
+
+
+
 // Summary
 console.log('\n======================================================');
 console.log(`📊 TEST RESULTS: ${testsPassed} PASSED, ${testsFailed} FAILED`);

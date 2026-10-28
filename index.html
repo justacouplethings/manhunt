@@ -293,22 +293,30 @@
       <!-- Top HUD Header Overlay -->
       <div class="hud-header-overlay">
         <div class="hud-top-bar">
-          <div id="status-connection" class="status-badge status-online">ONLINE</div>
-          <div class="hud-clock" id="hud-game-timer">45:00</div>
-          <div style="display:flex; align-items:center; gap:6px;">
-            <button type="button" id="btn-host-controls" class="hud-host-btn" style="display:none;">
-              👑 HOST
+          <div class="hud-top-left">
+            <div id="status-connection" class="status-badge status-online">ONLINE</div>
+          </div>
+          <div class="hud-top-center">
+            <div class="hud-clock" id="hud-game-timer">45:00</div>
+          </div>
+          <div class="hud-top-right">
+            <button type="button" id="btn-host-controls" class="hud-host-btn" style="display:none;" title="Host Mission Control">
+              <span>👑</span> <span class="host-btn-label">HOST</span>
             </button>
-            <button type="button" id="btn-target-selector" class="hud-pill-btn" style="display:none;">
-              🎯 TARGET: AUTO
-            </button>
-            <button type="button" id="btn-open-settings-hud" class="text-btn" style="padding:4px 6px;">
+            <button type="button" id="btn-open-settings-hud" class="hud-icon-btn" title="Settings" aria-label="Settings">
               ⚙️
             </button>
-            <button type="button" id="btn-exit-match-hud" class="hud-exit-btn">
-              🚪 EXIT
+            <button type="button" id="btn-exit-match-hud" class="hud-exit-btn" title="Leave Match" aria-label="Exit">
+              <span>🚪</span> <span class="exit-btn-label">EXIT</span>
             </button>
           </div>
+        </div>
+
+        <!-- Dedicated Context Row for Seeker Target Locking Pill -->
+        <div id="hud-context-row" class="hud-context-row">
+          <button type="button" id="btn-target-selector" class="hud-pill-btn" style="display:none;">
+            <span>🎯</span> TARGET: AUTO
+          </button>
         </div>
 
         <!-- Grace Period Banner -->
@@ -668,49 +676,65 @@
 
     <!-- Host In-Match Mission Control Modal -->
     <div id="modal-host-controls" class="modal-backdrop">
-      <div class="modal-content" style="max-width:440px; text-align:left;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+      <div class="modal-content host-mission-control-modal">
+        <div class="host-modal-header">
           <div style="display:flex; align-items:center; gap:8px;">
             <span style="font-size:1.4rem;">👑</span>
             <div>
-              <h2 style="font-size:1.15rem; font-weight:900;">MISSION CONTROL</h2>
-              <div style="font-size:0.75rem; color:var(--theme-text-secondary);">Host tactical command & anti-foul authority</div>
+              <h2 style="font-size:1.1rem; font-weight:900; margin:0;">MISSION CONTROL</h2>
+              <div style="font-size:0.72rem; color:var(--theme-text-secondary);">Host Tactical Command & Authority</div>
             </div>
           </div>
-          <button type="button" id="btn-close-host-controls" class="text-btn" style="font-size:1.3rem;">✕</button>
+          <button type="button" id="btn-close-host-controls" class="text-btn" style="font-size:1.2rem; padding:4px 8px;">✕</button>
         </div>
 
-        <div style="display:flex; flex-direction:column; gap:10px; margin: 12px 0 16px;">
-          <!-- Pause / Resume -->
-          <button type="button" id="btn-host-pause-toggle" class="btn-secondary" style="width:100%; justify-content:flex-start; padding:12px 16px; border-color:var(--theme-warning);">
+        <!-- Real-time Mission Overview Strip -->
+        <div class="host-status-strip">
+          <div class="host-stat-box">
+            <span class="host-stat-label">STATUS</span>
+            <span id="host-match-status-badge" class="host-stat-val val-green">ACTIVE</span>
+          </div>
+          <div class="host-stat-box">
+            <span class="host-stat-label">SQUAD</span>
+            <span id="host-squad-count" class="host-stat-val">--</span>
+          </div>
+          <div class="host-stat-box">
+            <span class="host-stat-label">BOUNDARY</span>
+            <span id="host-boundary-val" class="host-stat-val">1.5KM</span>
+          </div>
+        </div>
+
+        <div class="host-actions-stack">
+          <!-- Pause / Resume Toggle -->
+          <button type="button" id="btn-host-pause-toggle" class="host-cmd-btn cmd-pause">
             <span id="host-pause-icon" style="font-size:1.2rem;">⏸️</span>
-            <div>
-              <div id="host-pause-title" style="font-weight:800; color:var(--theme-warning);">PAUSE OPERATION</div>
-              <div style="font-size:0.72rem; color:var(--theme-text-secondary);">Freeze all game timers and proximity alerts</div>
+            <div style="text-align:left; flex:1;">
+              <div id="host-pause-title" style="font-weight:800; font-size:0.85rem; color:var(--theme-warning);">PAUSE OPERATION</div>
+              <div style="font-size:0.7rem; color:var(--theme-text-secondary);">Freeze game timers & proximity alerts</div>
             </div>
           </button>
 
-          <!-- Satellite Recon Sweep -->
-          <button type="button" id="btn-host-recon-sweep" class="btn-secondary" style="width:100%; justify-content:flex-start; padding:12px 16px; border-color:var(--theme-accent-cyan);">
+          <!-- Force Satellite Recon Sweep -->
+          <button type="button" id="btn-host-recon-sweep" class="host-cmd-btn cmd-recon">
             <span style="font-size:1.2rem;">🛰️</span>
-            <div>
-              <div style="font-weight:800; color:var(--theme-accent-cyan);">FORCE SATELLITE RECON SWEEP</div>
-              <div style="font-size:0.72rem; color:var(--theme-text-secondary);">Ping all runner & seeker coordinates immediately</div>
+            <div style="text-align:left; flex:1;">
+              <div style="font-weight:800; font-size:0.85rem; color:var(--theme-accent-cyan);">FORCE SATELLITE RECON SWEEP</div>
+              <div style="font-size:0.7rem; color:var(--theme-text-secondary);">Ping all coordinates immediately</div>
             </div>
           </button>
 
           <!-- Host Force Tag / Anti-Stall Section -->
-          <div style="border-top:1px solid var(--theme-border); padding-top:10px; margin-top:4px;">
-            <div style="font-size:0.75rem; font-weight:800; color:var(--theme-text-secondary); margin-bottom:6px; letter-spacing:0.05em;">
-              FORCE TAG OVERRIDE (ANTI-STALL)
+          <div class="host-sub-panel">
+            <div style="font-size:0.72rem; font-weight:800; color:var(--theme-text-secondary); margin-bottom:6px; letter-spacing:0.06em;">
+              ANTI-STALL FORCE TAG OVERRIDE
             </div>
-            <div id="host-force-tag-list" style="display:flex; flex-direction:column; gap:6px; max-height:120px; overflow-y:auto;">
+            <div id="host-force-tag-list" style="display:flex; flex-direction:column; gap:6px; max-height:110px; overflow-y:auto;">
               <!-- Dynamically populated with active runners -->
             </div>
           </div>
 
           <!-- Emergency Abort -->
-          <button type="button" id="btn-host-abort-match" class="btn-primary" style="width:100%; justify-content:center; padding:12px 16px; background:var(--theme-gradient-seeker); color:#fff; margin-top:6px;">
+          <button type="button" id="btn-host-abort-match" class="btn-primary" style="width:100%; justify-content:center; padding:11px 14px; background:var(--theme-gradient-seeker); color:#fff; font-size:0.82rem; margin-top:4px;">
             <span>🛑</span> EMERGENCY STOP OPERATION
           </button>
         </div>

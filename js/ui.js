@@ -372,6 +372,52 @@ class UIManager {
     }, 1000);
   }
 
+  resetMatchUI() {
+    const roster = document.getElementById('waiting-player-list');
+    if (roster) roster.innerHTML = '';
+
+    const targets = document.getElementById('target-selection-list');
+    if (targets) targets.innerHTML = '';
+
+    const forceTags = document.getElementById('host-force-tag-list');
+    if (forceTags) forceTags.innerHTML = '';
+
+    const distVal = document.getElementById('radar-distance-value');
+    if (distVal) distVal.textContent = '--';
+
+    const targetName = document.getElementById('radar-target-name');
+    if (targetName) targetName.textContent = 'SCANNING SENSORS...';
+
+    const arrow = document.getElementById('radar-direction-arrow');
+    if (arrow) arrow.style.transform = 'rotate(0deg)';
+
+    const oobBanner = document.getElementById('hud-oob-banner');
+    if (oobBanner) oobBanner.style.display = 'none';
+
+    const pauseOverlay = document.getElementById('hud-paused-overlay');
+    if (pauseOverlay) pauseOverlay.style.display = 'none';
+
+    const graceBanner = document.getElementById('grace-period-banner');
+    if (graceBanner) graceBanner.style.display = 'none';
+
+    const countBadge = document.getElementById('roster-count-badge');
+    if (countBadge) countBadge.textContent = '1 SQUAD MEMBER';
+
+    const targetPill = document.getElementById('btn-target-selector');
+    if (targetPill) targetPill.innerHTML = '<span>🎯</span> TARGET: AUTO';
+
+    const tagBtn = document.getElementById('btn-tag-runner');
+    if (tagBtn) {
+      tagBtn.disabled = true;
+      tagBtn.classList.remove('tag-ready');
+      tagBtn.innerHTML = `🎯 TAG RUNNER (RANGE: ${Config.settings.tagDistanceMeters}m)`;
+    }
+
+    ['modal-host-controls', 'modal-boundary-confirm', 'modal-runner-tag-confirm', 'modal-captured', 'modal-target-selector'].forEach(m => {
+      this.closeModal(m);
+    });
+  }
+
   renderLobbyRoster(players, isHost) {
     const container = document.getElementById('waiting-player-list');
     if (!container) return;
@@ -499,7 +545,22 @@ class UIManager {
   updateHostButtons(isHost) {
     const hostBtn = document.getElementById('btn-host-controls');
     if (hostBtn) {
-      hostBtn.style.display = isHost ? 'flex' : 'none';
+      hostBtn.style.display = isHost ? 'inline-flex' : 'none';
+    }
+    const hostStatusBadge = document.getElementById('host-match-status-badge');
+    if (hostStatusBadge) {
+      hostStatusBadge.textContent = Game.isPaused ? 'PAUSED' : 'ACTIVE';
+      hostStatusBadge.className = `host-stat-val ${Game.isPaused ? 'val-amber' : 'val-green'}`;
+    }
+    const squadCount = document.getElementById('host-squad-count');
+    if (squadCount) {
+      const count = Network.peers.size + 1;
+      squadCount.textContent = `${count} PLAYERS`;
+    }
+    const boundaryVal = document.getElementById('host-boundary-val');
+    if (boundaryVal) {
+      const bMeters = Config.settings.boundaryRadiusMeters;
+      boundaryVal.textContent = bMeters >= 1000 ? `${(bMeters / 1000).toFixed(1)}KM` : `${bMeters}M`;
     }
   }
 
@@ -514,6 +575,12 @@ class UIManager {
     const title = document.getElementById('host-pause-title');
     if (icon) icon.textContent = isPaused ? '▶️' : '⏸️';
     if (title) title.textContent = isPaused ? 'RESUME OPERATION' : 'PAUSE OPERATION';
+
+    const hostStatusBadge = document.getElementById('host-match-status-badge');
+    if (hostStatusBadge) {
+      hostStatusBadge.textContent = isPaused ? 'PAUSED' : 'ACTIVE';
+      hostStatusBadge.className = `host-stat-val ${isPaused ? 'val-amber' : 'val-green'}`;
+    }
   }
 
   setGracePeriodState(isActive, remainingSeconds = 0, role = 'runner') {

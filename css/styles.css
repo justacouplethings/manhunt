@@ -756,13 +756,16 @@ html, body {
 /* Top Floating Glass Capsule */
 .hud-header-overlay {
   position: absolute;
-  top: 0; left: 0; width: 100%;
+  top: 0; left: 0; right: 0;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
   z-index: 100;
   pointer-events: none;
-  padding: calc(env(safe-area-inset-top, 16px) + 12px) 16px 0;
+  padding: calc(env(safe-area-inset-top, 12px) + 8px) 12px 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .hud-top-bar {
@@ -774,9 +777,30 @@ html, body {
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--theme-border);
   border-radius: var(--radius-full);
-  padding: 8px 18px;
+  padding: 6px 12px;
   pointer-events: auto;
   box-shadow: var(--shadow-md);
+  gap: 8px;
+}
+
+.hud-top-left {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.hud-top-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+}
+
+.hud-top-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .status-badge {
@@ -800,17 +824,36 @@ html, body {
 .hud-clock {
   font-family: var(--font-mono);
   font-size: 1.15rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  color: var(--theme-text-primary);
+}
+
+.hud-icon-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--theme-border);
+  color: var(--theme-text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.hud-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .hud-exit-btn {
-  padding: 6px 12px;
+  padding: 5px 10px;
   background: rgba(255, 71, 87, 0.15);
   border: 1px solid rgba(255, 71, 87, 0.4);
   color: var(--theme-seeker);
   border-radius: var(--radius-full);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.04em;
   cursor: pointer;
@@ -818,47 +861,189 @@ html, body {
   align-items: center;
   gap: 4px;
   transition: all 0.2s ease;
+  white-space: nowrap;
 }
 .hud-exit-btn:hover {
   background: rgba(255, 71, 87, 0.3);
 }
 
 .hud-host-btn {
-  padding: 6px 12px;
-  background: rgba(251, 191, 36, 0.15);
-  border: 1px solid rgba(251, 191, 36, 0.5);
+  padding: 5px 10px;
+  background: rgba(251, 191, 36, 0.18);
+  border: 1px solid rgba(251, 191, 36, 0.6);
   color: var(--theme-warning);
   border-radius: var(--radius-full);
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 4px;
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.25);
   transition: all 0.2s ease;
+  white-space: nowrap;
 }
 .hud-host-btn:hover {
-  background: rgba(251, 191, 36, 0.3);
+  background: rgba(251, 191, 36, 0.35);
+}
+
+.hud-context-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  pointer-events: none;
+}
+.hud-context-row > * {
+  pointer-events: auto;
 }
 
 .hud-pill-btn {
-  padding: 6px 12px;
-  background: rgba(0, 212, 255, 0.15);
-  border: 1px solid rgba(0, 212, 255, 0.4);
+  padding: 6px 14px;
+  background: var(--theme-surface-glass-elevated);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--theme-border-hover);
   color: var(--theme-accent-cyan);
   border-radius: var(--radius-full);
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   font-weight: 800;
   letter-spacing: 0.04em;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  box-shadow: var(--shadow-md);
   transition: all 0.2s ease;
+  max-width: 90vw;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .hud-pill-btn:hover {
-  background: rgba(0, 212, 255, 0.3);
+  background: rgba(0, 212, 255, 0.2);
+  border-color: var(--theme-accent-cyan);
+}
+
+/* Host Mission Control Modal Responsive Styles */
+.host-mission-control-modal {
+  max-width: 440px;
+  width: 92vw;
+  max-height: 85dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  text-align: left;
+  padding: 18px 20px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  box-shadow: 0 0 32px rgba(251, 191, 36, 0.2);
+}
+
+.host-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.host-status-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.host-stat-box {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--theme-border);
+  border-radius: var(--radius-md);
+  padding: 6px 8px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.host-stat-label {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--theme-text-secondary);
+  text-transform: uppercase;
+}
+
+.host-stat-val {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 900;
+  color: var(--theme-text-primary);
+}
+.host-stat-val.val-green {
+  color: var(--theme-runner);
+}
+.host-stat-val.val-amber {
+  color: var(--theme-warning);
+}
+
+.host-actions-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.host-cmd-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--theme-surface-subtle);
+  border: 1px solid var(--theme-border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  width: 100%;
+  color: var(--theme-text-primary);
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+.host-cmd-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.cmd-pause {
+  border-color: rgba(251, 191, 36, 0.4);
+}
+.cmd-pause:hover {
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.cmd-recon {
+  border-color: rgba(0, 212, 255, 0.4);
+}
+.cmd-recon:hover {
+  background: rgba(0, 212, 255, 0.08);
+}
+
+.host-sub-panel {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--theme-border);
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+}
+
+@media (max-width: 380px) {
+  .hud-top-bar {
+    padding: 5px 8px;
+    gap: 4px;
+  }
+  .hud-clock {
+    font-size: 1.02rem;
+  }
+  .host-btn-label, .exit-btn-label {
+    display: none;
+  }
+  .hud-host-btn, .hud-exit-btn {
+    padding: 5px 7px;
+  }
 }
 
 /* Universal High-Definition Cartography Clean Styles (Zero Red/Pink Inversion Distortion) */
