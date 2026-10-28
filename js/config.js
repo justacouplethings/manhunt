@@ -4,29 +4,32 @@
  */
 const DEFAULT_CONFIG = {
   // Gameplay Timers & Tracking Modes
-  runnerPingInterval: 300,      // Seconds (Default: 5 minutes)
-  seekerTrackingMode: 'live',   // 'live' (2s continuous) or interval seconds (60, 120, 300, 600)
-  seekerPingInterval: 3,        // Seconds (Used when in live mode)
-  gracePeriod: 180,             // Seconds (Head start: 3 minutes)
-  gameDuration: 2700,           // Seconds (Game length: 45 minutes; 0 = unlimited)
-  
+  runnerPingInterval: 300,        // Seconds (Default: 5 minutes: 30s, 60s, 120s, 180s, 300s, 600s, 900s)
+  seekerTrackingMode: 'live',     // 'live' (2s continuous) or interval seconds (60, 120, 300, 600)
+  seekerPingInterval: 3,          // Seconds (Used when in live mode: 2, 3, 5, 10)
+  gracePeriod: 180,               // Seconds (Head start: 0, 30, 60, 120, 180, 300, 600)
+  gameDuration: 2700,             // Seconds (Game length: 600, 900, 1800, 2700, 3600, 5400, 0 = unlimited)
+
   // Tactical Rules & Detection
-  tagDistanceMeters: 15,        // Tag radius in meters
-  proximityAlertMeters: 100,    // Proximity alarm triggers within 100 meters
-  proximityAlertInterval: 10,   // Beep interval in seconds when seeker is near
-  boundaryRadiusMeters: 1500,   // Play boundary (0 = off, 500m - 5000m)
-  
+  tagDistanceMeters: 15,          // Tag radius in meters (5, 10, 15, 20, 25, 30, 50)
+  runnerCaptureMode: 'infection', // 'infection' (turns into seeker) or 'elimination' (spectator)
+  requireTagConfirmation: true,   // true (runner confirms on mobile) or false (instant tag)
+  proximityAlertMeters: 100,      // Proximity alarm triggers within meters (0 = off, 25, 50, 75, 100, 150, 200)
+  proximityAlertInterval: 10,     // Beep interval in seconds when seeker is near
+  boundaryRadiusMeters: 1500,     // Play boundary (0 = off, 250, 500, 1000, 1500, 2000, 3000, 5000)
+
   // Sensory & Hardware
-  soundEnabled: true,           // Tactical audio synthesizer
-  vibrationEnabled: true,       // Haptic pulse alerts
-  wakeLockEnabled: true,        // Prevent screen dimming during match
-  
-  // Visual Theme
-  theme: 'theme-night-vision',  // Default: Tactical phosphor HUD
-  mapTileProvider: 'dark',      // 'dark', 'voyager', 'osm'
-  
+  soundEnabled: true,             // Tactical audio synthesizer
+  vibrationEnabled: true,         // Haptic pulse alerts
+  wakeLockEnabled: true,          // Prevent screen dimming during match
+  highAccuracyGPS: true,          // Use GPS high accuracy
+
+  // Visual Theme & Cartography
+  theme: 'theme-night-vision',    // Default: Tactical phosphor HUD
+  mapTileProvider: 'voyager',     // 'voyager', 'osm', 'dark'
+
   // Development / Offline Simulation
-  simulationMode: false         // Test mode with simulated bots
+  simulationMode: false           // Test mode with simulated bots
 };
 
 const THEMES = [
@@ -117,7 +120,6 @@ class ConfigManager {
 
   applyTheme() {
     const currentTheme = this.settings.theme || 'theme-night-vision';
-    // Remove existing theme classes from document body
     THEMES.forEach(t => document.body.classList.remove(t.id));
     document.body.classList.add(currentTheme);
   }

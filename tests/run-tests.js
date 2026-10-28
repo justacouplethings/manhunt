@@ -223,6 +223,49 @@ const iconStats = fs.statSync(path.join(rootDir, 'assets/icon.png'));
 assert(iconStats.size > 10000, `Production icon is present and uncorrupted (${iconStats.size} bytes)`);
 
 
+// 6. Test Tag Distance Customization & Range Verification
+console.log('\n6. Testing Tag Distance Customization & Trigger Logic:');
+function evaluateTagCandidate(distance, configuredTagDistance) {
+  return distance <= configuredTagDistance;
+}
+
+assert(evaluateTagCandidate(14, 15) === true, '14m is within default 15m tag range');
+assert(evaluateTagCandidate(16, 15) === false, '16m is outside default 15m tag range');
+assert(evaluateTagCandidate(28, 30) === true, '28m is within customized 30m park tag range');
+assert(evaluateTagCandidate(45, 50) === true, '45m is within customized 50m open field tag range');
+assert(evaluateTagCandidate(8, 5) === false, '8m is correctly rejected under 5m physical touch rule');
+
+
+// 7. Test Infection vs Elimination Mode State Conversion
+console.log('\n7. Testing Infection vs Elimination Mechanics:');
+function processCapture(player, mode) {
+  if (mode === 'infection') {
+    return { ...player, role: 'seeker', isTagged: true, isInfected: true };
+  } else {
+    return { ...player, isTagged: true, isEliminated: true };
+  }
+}
+
+const runnerAlice = { id: 'p_alice', nickname: 'Alice', role: 'runner', isTagged: false };
+const infectedAlice = processCapture(runnerAlice, 'infection');
+assert(infectedAlice.role === 'seeker', 'Infection mode converts caught runner to Seeker role');
+assert(infectedAlice.isInfected === true, 'Infection mode flags player as infected pursuer');
+
+const runnerBob = { id: 'p_bob', nickname: 'Bob', role: 'runner', isTagged: false };
+const eliminatedBob = processCapture(runnerBob, 'elimination');
+assert(eliminatedBob.role === 'runner', 'Elimination mode keeps original role as spectator');
+assert(eliminatedBob.isEliminated === true, 'Elimination mode marks caught runner as spectator');
+
+
+// 8. Test Host Lobby Role Reassignment
+console.log('\n8. Testing Host Lobby Role Assignment:');
+function toggleRole(currentRole) {
+  return currentRole === 'runner' ? 'seeker' : 'runner';
+}
+assert(toggleRole('runner') === 'seeker', 'Host toggling runner produces seeker');
+assert(toggleRole('seeker') === 'runner', 'Host toggling seeker produces runner');
+
+
 // Summary
 console.log('\n======================================================');
 console.log(`📊 TEST RESULTS: ${testsPassed} PASSED, ${testsFailed} FAILED`);

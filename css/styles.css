@@ -616,6 +616,69 @@ html, body {
   border-radius: var(--radius-full);
 }
 
+.player-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-role-toggle {
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 5px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--theme-border);
+  color: var(--theme-text-primary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-role-toggle:hover, .btn-role-toggle:active {
+  background: var(--theme-primary);
+  color: #07090e;
+  border-color: var(--theme-primary);
+  transform: scale(1.02);
+}
+
+.force-tag-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--theme-border);
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+}
+
+.btn-force-tag {
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 4px 8px;
+  border-radius: var(--radius-full);
+  background: var(--theme-seeker);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: opacity 0.2s;
+}
+
+.btn-force-tag:hover, .btn-force-tag:active {
+  opacity: 0.85;
+}
+
 /* --------------------------------------------------------------------------
    ACTIVE HUD & RADAR VIEW
    -------------------------------------------------------------------------- */

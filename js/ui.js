@@ -235,14 +235,16 @@ class UIManager {
     if (el) el.textContent = code;
   }
 
-  updateConnectionBadge(isConnected, mode = 'cloud') {
+  updateConnectionBadge(isConnected, broker = '') {
     const badge = document.getElementById('status-connection');
     if (!badge) return;
     if (isConnected) {
-      badge.textContent = mode === 'cloud' ? 'ONLINE (RELAY)' : 'LOCAL MODE';
+      const brokerShort = broker.includes('hivemq') ? 'HIVEMQ' : (broker.includes('emqx') ? 'EMQX' : 'RELAY');
+      const count = Network.peers.size + 1;
+      badge.textContent = `● ${brokerShort} (${count}P)`;
       badge.className = 'status-badge status-online';
     } else {
-      badge.textContent = 'DISCONNECTED';
+      badge.textContent = 'CONNECTING...';
       badge.className = 'status-badge status-offline';
     }
   }
@@ -268,14 +270,30 @@ class UIManager {
     container.innerHTML = '';
 
     players.forEach(p => {
+      const isSelf = p.id === Network.playerId;
       const item = document.createElement('div');
       item.className = `player-card role-${p.role}`;
+
+      let actionsHtml = '';
+      if (isHost && !isSelf) {
+        const nextRole = p.role === 'runner' ? 'seeker' : 'runner';
+        const nextRoleLabel = nextRole === 'seeker' ? 'SET SEEKER' : 'SET RUNNER';
+        actionsHtml = `
+          <button type="button" class="btn-role-toggle" onclick="Game.setPlayerRoleByHost('${p.id}', '${nextRole}')">
+            <span>🔄</span> ${nextRoleLabel}
+          </button>
+        `;
+      }
+
       item.innerHTML = `
         <div class="player-info">
           <span class="player-role-badge">${p.role.toUpperCase()}</span>
           <span class="player-name">${p.nickname}</span>
         </div>
-        ${p.isHost ? '<span class="host-badge">HOST</span>' : ''}
+        <div class="player-card-actions">
+          ${p.isHost ? '<span class="host-badge">HOST</span>' : ''}
+          ${actionsHtml}
+        </div>
       `;
       container.appendChild(item);
     });
@@ -313,6 +331,15 @@ class UIManager {
     const durationSel = document.getElementById('lobby-match-duration');
     if (durationSel && settings.gameDuration !== undefined) durationSel.value = settings.gameDuration;
 
+    const tagDistSel = document.getElementById('lobby-tag-distance');
+    if (tagDistSel && settings.tagDistanceMeters !== undefined) tagDistSel.value = settings.tagDistanceMeters;
+
+    const captureModeSel = document.getElementById('lobby-capture-mode');
+    if (captureModeSel && settings.runnerCaptureMode) captureModeSel.value = settings.runnerCaptureMode;
+
+    const tagConfirmSel = document.getElementById('lobby-tag-confirm');
+    if (tagConfirmSel && settings.requireTagConfirmation !== undefined) tagConfirmSel.value = String(settings.requireTagConfirmation);
+
     const boundarySel = document.getElementById('lobby-boundary');
     if (boundarySel && settings.boundaryRadiusMeters !== undefined) boundarySel.value = settings.boundaryRadiusMeters;
 
@@ -335,6 +362,16 @@ class UIManager {
     const chipDuration = document.getElementById('chip-match-duration');
     if (chipDuration) {
       chipDuration.textContent = `DURATION: ${settings.gameDuration === 0 ? 'UNLIMITED' : Math.round(settings.gameDuration / 60) + 'M'}`;
+    }
+
+    const chipTag = document.getElementById('chip-tag-distance');
+    if (chipTag) {
+      chipTag.textContent = `TAG: ${settings.tagDistanceMeters || 15}M`;
+    }
+
+    const chipMode = document.getElementById('chip-capture-mode');
+    if (chipMode) {
+      chipMode.textContent = `MODE: ${(settings.runnerCaptureMode || 'infection').toUpperCase()}`;
     }
 
     const chipBoundary = document.getElementById('chip-boundary');
@@ -533,6 +570,35 @@ class UIManager {
     if (modal) modal.style.display = 'flex';
   }
 
+  showRunnerTagConfirmModal(seekerName, distanceMeters) {
+    const nameEl = document.getElementById('tag-confirm-seeker-name');
+    if (nameEl) nameEl.textContent = seekerName || 'Seeker';
+    const distEl = document.getElementById('tag-confirm-distance');
+    if (distEl) distEl.textContent = `${Math.round(distanceMeters || Config.settings.tagDistanceMeters)}m`;
+
+    this.playAudioCue('siren');
+    this.vibrate([300, 150, 300, 150, 400]);
+    this.showModal('modal-runner-tag-confirm');
+  }
+
+  adaptHUDForRole(role) {
+    const isSeeker = role === 'seeker';
+    const tagBtn = document.getElementById('btn-tag-runner');
+    if (tagBtn) tagBtn.style.display = isSeeker ? 'block' : 'none';
+
+    const selectorPill = document.getElementById('btn-target-selector');
+    if (selectorPill) selectorPill.style.display = isSeeker ? 'flex' : 'none';
+
+    const radarContainer = document.querySelector('.radar-container');
+    if (radarContainer) {
+      if (isSeeker) {
+        radarContainer.classList.add('seeker-radar');
+      } else {
+        radarContainer.classList.remove('seeker-radar');
+      }
+    }
+  }
+
   showGameOverScreen(data) {
     this.showScreen('screen-gameover');
     const winnerEl = document.getElementById('gameover-winner');
@@ -567,6 +633,18 @@ class UIManager {
     // Tag Distance select
     const tagSelect = document.getElementById('setting-tag-distance');
     if (tagSelect) tagSelect.value = Config.settings.tagDistanceMeters;
+
+    // Post-Catch Mode select
+    const captureSelect = document.getElementById('setting-capture-mode');
+    if (captureSelect) captureSelect.value = Config.settings.runnerCaptureMode || 'infection';
+
+    // Tag Confirm select
+    const confirmSelect = document.getElementById('setting-tag-confirm');
+    if (confirmSelect) confirmSelect.value = String(Config.settings.requireTagConfirmation !== false);
+
+    // Proximity Alarm Distance select
+    const proxSelect = document.getElementById('setting-proximity-distance');
+    if (proxSelect) proxSelect.value = Config.settings.proximityAlertMeters !== undefined ? Config.settings.proximityAlertMeters : 100;
 
     // Boundary select
     const boundarySelect = document.getElementById('setting-boundary');
@@ -703,6 +781,9 @@ class UIManager {
       const runnerInterval = parseInt(document.getElementById('lobby-runner-interval').value, 10);
       const gracePeriod = parseInt(document.getElementById('lobby-grace-period').value, 10);
       const matchDuration = parseInt(document.getElementById('lobby-match-duration').value, 10);
+      const tagDistance = parseInt(document.getElementById('lobby-tag-distance').value, 10);
+      const captureMode = document.getElementById('lobby-capture-mode').value;
+      const tagConfirm = document.getElementById('lobby-tag-confirm').value === 'true';
       const boundary = parseInt(document.getElementById('lobby-boundary').value, 10);
 
       const updated = {
@@ -710,16 +791,19 @@ class UIManager {
         runnerPingInterval: runnerInterval,
         gracePeriod: gracePeriod,
         gameDuration: matchDuration,
+        tagDistanceMeters: tagDistance,
+        runnerCaptureMode: captureMode,
+        requireTagConfirmation: tagConfirm,
         boundaryRadiusMeters: boundary
       };
 
       Config.save(updated);
       this.updateLobbyRulesDisplay(updated);
-      Network.broadcast('settings_sync', updated);
+      Network.broadcast('settings_sync', updated, true);
       this.showToast('Tactical rules updated for squad', 'info');
     };
 
-    ['lobby-seeker-mode', 'lobby-runner-interval', 'lobby-grace-period', 'lobby-match-duration', 'lobby-boundary'].forEach(id => {
+    ['lobby-seeker-mode', 'lobby-runner-interval', 'lobby-grace-period', 'lobby-match-duration', 'lobby-tag-distance', 'lobby-capture-mode', 'lobby-tag-confirm', 'lobby-boundary'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.onchange = handleLobbyConfigChange;
     });
@@ -795,6 +879,9 @@ class UIManager {
         const grace = parseInt(document.getElementById('setting-grace-period').value, 10);
         const duration = parseInt(document.getElementById('setting-game-duration').value, 10);
         const tagDist = parseInt(document.getElementById('setting-tag-distance').value, 10);
+        const captureMode = document.getElementById('setting-capture-mode').value;
+        const tagConfirm = document.getElementById('setting-tag-confirm').value === 'true';
+        const proxDist = parseInt(document.getElementById('setting-proximity-distance').value, 10);
         const boundary = parseInt(document.getElementById('setting-boundary').value, 10);
         const sound = document.getElementById('setting-sound').checked;
         const vib = document.getElementById('setting-vibration').checked;
@@ -804,6 +891,9 @@ class UIManager {
           gracePeriod: grace,
           gameDuration: duration,
           tagDistanceMeters: tagDist,
+          runnerCaptureMode: captureMode,
+          requireTagConfirmation: tagConfirm,
+          proximityAlertMeters: proxDist,
           boundaryRadiusMeters: boundary,
           soundEnabled: sound,
           vibrationEnabled: vib
@@ -813,13 +903,23 @@ class UIManager {
 
         // If host, sync to room peers
         if (Game.isHost && Game.roomCode) {
-          Network.broadcast('settings_sync', newSettings);
+          Network.broadcast('settings_sync', newSettings, true);
         }
 
         this.showToast('Settings saved successfully', 'info');
         this.showScreen(Game.state === 'ACTIVE' ? 'screen-hud' : (Game.state === 'WAITING' ? 'screen-waiting' : 'screen-lobby'));
       };
     }
+
+    // Runner Tag Confirmation Modal
+    const confirmCaughtBtn = document.getElementById('btn-confirm-caught');
+    if (confirmCaughtBtn) confirmCaughtBtn.onclick = () => Game.confirmCaught();
+
+    const disputeCaughtBtn = document.getElementById('btn-dispute-caught');
+    if (disputeCaughtBtn) disputeCaughtBtn.onclick = () => Game.disputeCaught();
+
+    const capturedContinueBtn = document.getElementById('btn-captured-continue');
+    if (capturedContinueBtn) capturedContinueBtn.onclick = () => this.closeModal('modal-captured');
 
     // Simulation Toggle
     const simToggle = document.getElementById('setting-simulation');

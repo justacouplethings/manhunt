@@ -1,7 +1,7 @@
 /**
  * Manhunt Core Game Engine & State Machine
- * Handles role-based visibility, grace period head start, 5-minute runner ping cycle,
- * proximity alarms, tag detection, and match victory conditions.
+ * Handles role-based visibility, grace period head start, runner ping cycle,
+ * proximity alarms, tag detection, runner mobile confirmation, and infection/elimination modes.
  */
 class ManhuntGame {
   constructor() {
@@ -27,9 +27,10 @@ class ManhuntGame {
     this.matchStartTimestamp = 0;
     this.lockedTargetId = null;
     this.seekerPingCountdown = 0;
+    this.pendingTagRequest = null;
 
     // Telemetry cache
-    this.lastKnownPositions = new Map(); // id -> { lat, lng, role, timestamp }
+    this.lastKnownPositions = new Map(); // id -> { lat, lng, role, timestamp, nickname }
     this.lastSelfCoords = null;
 
     // Audio & sensory state
@@ -46,8 +47,8 @@ class ManhuntGame {
 
   setupNetworkListeners() {
     Network.on('connected', (info) => {
-      console.log('Network connected mode:', info.mode);
-      UI.updateConnectionBadge(true, info.mode);
+      console.log('Network connected mode:', info.mode, info.broker);
+      UI.updateConnectionBadge(true, info.broker);
     });
 
     Network.on('disconnected', (info) => {
@@ -56,18 +57,45 @@ class ManhuntGame {
 
     Network.on('player_joined', (peer) => {
       this.updatePlayerRoster();
+      UI.updateConnectionBadge(Network.isConnected, Network.activeBrokerName);
       UI.showToast(`${peer.nickname} joined as ${peer.role.toUpperCase()}`, 'info');
       UI.playAudioCue('join');
+    });
+
+    Network.on('player_updated', () => {
+      this.updatePlayerRoster();
+      UI.updateConnectionBadge(Network.isConnected, Network.activeBrokerName);
     });
 
     Network.on('player_left', (peer) => {
       this.updatePlayerRoster();
       MapController.removePeer(peer.playerId);
+      UI.updateConnectionBadge(Network.isConnected, Network.activeBrokerName);
       UI.showToast(`${peer.nickname} left the room`, 'warning');
     });
 
     Network.on('game_started', (data) => {
       this.onGameStartedRemote(data);
+    });
+
+    Network.on('room_state', (data) => {
+      this.handleRoomStateBeacon(data);
+    });
+
+    Network.on('role_assigned', (data) => {
+      this.handleRoleAssigned(data);
+    });
+
+    Network.on('tag_request', (data) => {
+      this.handleTagRequest(data);
+    });
+
+    Network.on('tag_confirmed', (data) => {
+      this.onRemoteTagConfirmed(data);
+    });
+
+    Network.on('tag_disputed', (data) => {
+      this.handleTagDisputed(data);
     });
 
     Network.on('host_command', (data) => {
@@ -79,7 +107,7 @@ class ManhuntGame {
     });
 
     Network.on('tag_event', (data) => {
-      this.onRemoteTag(data);
+      this.onRemoteTagConfirmed(data);
     });
 
     Network.on('settings_synced', (newSettings) => {
@@ -144,13 +172,90 @@ class ManhuntGame {
   }
 
   /**
-   * Switch roles in lobby
+   * Switch own role in lobby
    */
   setRole(newRole) {
     this.role = newRole;
     Network.role = newRole;
     Network.sendPresence();
     this.updatePlayerRoster();
+  }
+
+  /**
+   * Host reassigns another player's role in the lobby
+   */
+  setPlayerRoleByHost(targetPlayerId, newRole) {
+    if (!this.isHost) return;
+    const peer = Network.peers.get(targetPlayerId);
+    if (peer) {
+      peer.role = newRole;
+    }
+    Network.broadcast('role_assigned', {
+      targetPlayerId: targetPlayerId,
+      newRole: newRole,
+      hostName: this.nickname
+    }, true);
+    this.updatePlayerRoster();
+    UI.showToast(`Squad role updated: ${peer ? peer.nickname : 'Player'} is now ${newRole.toUpperCase()}`, 'info');
+  }
+
+  handleRoleAssigned(data) {
+    if (data.targetPlayerId === Network.playerId) {
+      this.role = data.newRole;
+      Network.role = data.newRole;
+      UI.showToast(`👑 Host assigned you to ${data.newRole.toUpperCase()}!`, 'warning');
+      UI.playAudioCue('ping');
+      this.updatePlayerRoster();
+      if (this.state === 'ACTIVE' || this.state === 'GRACE_PERIOD') {
+        UI.adaptHUDForRole(this.role);
+        if (this.lastSelfCoords) {
+          MapController.updateSelfLocation(this.lastSelfCoords.lat, this.lastSelfCoords.lng, this.role);
+        }
+      }
+    } else {
+      const peer = Network.peers.get(data.targetPlayerId);
+      if (peer) {
+        peer.role = data.newRole;
+      }
+      this.updatePlayerRoster();
+    }
+  }
+
+  /**
+   * Handle room state beacon from host (ensures late joiners & reconnects snap into match)
+   */
+  handleRoomStateBeacon(data) {
+    if (this.isHost) return;
+
+    if (data.settings) {
+      Config.save(data.settings);
+      UI.populateSettingsUI();
+      UI.updateLobbyRulesDisplay(Config.settings);
+    }
+
+    if (this.state === 'WAITING' && data.peers && Array.isArray(data.peers)) {
+      data.peers.forEach(p => {
+        if (p.id !== Network.playerId) {
+          Network.peers.set(p.id, { ...(Network.peers.get(p.id) || {}), ...p });
+        }
+      });
+      this.updatePlayerRoster();
+    }
+
+    // Auto catch-up into ongoing match if client was waiting
+    if (this.state === 'WAITING' && (data.state === 'ACTIVE' || data.state === 'GRACE_PERIOD')) {
+      console.log('Synchronizing into live operation via host beacon...');
+      this.onGameStartedRemote({
+        seekerTrackingMode: data.settings ? data.settings.seekerTrackingMode : Config.settings.seekerTrackingMode,
+        gracePeriod: data.settings ? data.settings.gracePeriod : Config.settings.gracePeriod,
+        gameDuration: data.settings ? data.settings.gameDuration : Config.settings.gameDuration,
+        runnerPingInterval: data.settings ? data.settings.runnerPingInterval : Config.settings.runnerPingInterval,
+        boundaryRadiusMeters: data.settings ? data.settings.boundaryRadiusMeters : Config.settings.boundaryRadiusMeters,
+        runnerCaptureMode: data.settings ? data.settings.runnerCaptureMode : Config.settings.runnerCaptureMode,
+        tagDistanceMeters: data.settings ? data.settings.tagDistanceMeters : Config.settings.tagDistanceMeters,
+        startTimestamp: data.matchStartTimestamp || Date.now()
+      });
+    }
   }
 
   updatePlayerRoster() {
@@ -163,7 +268,7 @@ class ManhuntGame {
       isHost: this.isHost
     });
 
-    for (const [id, peer] of Network.peers.entries()) {
+    for (const [, peer] of Network.peers.entries()) {
       list.push(peer);
     }
 
@@ -176,6 +281,7 @@ class ManhuntGame {
     });
 
     UI.renderLobbyRoster(list, this.isHost);
+    this.populateHostControlsModal();
   }
 
   /**
@@ -190,10 +296,13 @@ class ManhuntGame {
       gameDuration: Config.settings.gameDuration,
       runnerPingInterval: Config.settings.runnerPingInterval,
       boundaryRadiusMeters: Config.settings.boundaryRadiusMeters,
+      runnerCaptureMode: Config.settings.runnerCaptureMode,
+      tagDistanceMeters: Config.settings.tagDistanceMeters,
+      requireTagConfirmation: Config.settings.requireTagConfirmation,
       startTimestamp: Date.now()
     };
 
-    Network.broadcast('start_game', matchConfig);
+    Network.broadcast('start_game', matchConfig, true);
     this.onGameStartedRemote(matchConfig);
   }
 
@@ -203,6 +312,9 @@ class ManhuntGame {
     if (data.gameDuration !== undefined) Config.settings.gameDuration = data.gameDuration;
     if (data.runnerPingInterval !== undefined) Config.settings.runnerPingInterval = data.runnerPingInterval;
     if (data.boundaryRadiusMeters !== undefined) Config.settings.boundaryRadiusMeters = data.boundaryRadiusMeters;
+    if (data.runnerCaptureMode) Config.settings.runnerCaptureMode = data.runnerCaptureMode;
+    if (data.tagDistanceMeters !== undefined) Config.settings.tagDistanceMeters = data.tagDistanceMeters;
+    if (data.requireTagConfirmation !== undefined) Config.settings.requireTagConfirmation = data.requireTagConfirmation;
 
     this.matchStartTimestamp = data.startTimestamp;
     this.gracePeriodRemaining = Config.settings.gracePeriod;
@@ -213,7 +325,18 @@ class ManhuntGame {
     this.isPaused = false;
     this.taggedRunners.clear();
 
-    // Initialize tactical map with self location if available
+    // Populate active lists
+    this.activeRunners.clear();
+    this.activeSeekers.clear();
+    if (this.role === 'runner') this.activeRunners.add(Network.playerId);
+    else this.activeSeekers.add(Network.playerId);
+
+    for (const [id, peer] of Network.peers.entries()) {
+      if (peer.role === 'runner') this.activeRunners.add(id);
+      else if (peer.role === 'seeker') this.activeSeekers.add(id);
+    }
+
+    // Initialize tactical map
     if (this.lastSelfCoords) {
       MapController.init(this.lastSelfCoords.lat, this.lastSelfCoords.lng);
       MapController.updateSelfLocation(this.lastSelfCoords.lat, this.lastSelfCoords.lng, this.role);
@@ -226,6 +349,7 @@ class ManhuntGame {
 
     UI.showScreen('screen-hud');
     UI.updateHostButtons(this.isHost);
+    UI.adaptHUDForRole(this.role);
     UI.requestWakeLock();
     MapController.invalidate();
     setTimeout(() => {
@@ -290,7 +414,7 @@ class ManhuntGame {
       }
     }
 
-    // 3. Runner Ping Countdown (reveals runner coordinates periodically)
+    // 3. Runner Ping Countdown
     this.runnerPingCountdown--;
     UI.updatePingCountdown(this.runnerPingCountdown, Config.settings.runnerPingInterval, this.role);
 
@@ -312,6 +436,7 @@ class ManhuntGame {
             role: 'seeker',
             speed: this.lastSelfCoords.speed,
             heading: this.lastSelfCoords.heading,
+            nickname: this.nickname,
             timestamp: Date.now()
           });
         }
@@ -327,6 +452,7 @@ class ManhuntGame {
             isPingSnapshot: true,
             speed: this.lastSelfCoords.speed,
             heading: this.lastSelfCoords.heading,
+            nickname: this.nickname,
             timestamp: Date.now()
           });
           UI.playAudioCue('ping');
@@ -349,6 +475,7 @@ class ManhuntGame {
       lng: coords.lng,
       role: 'runner',
       isPingSnapshot: true,
+      nickname: this.nickname,
       timestamp: Date.now()
     });
 
@@ -357,14 +484,10 @@ class ManhuntGame {
     UI.showToast('📍 Runner location ping broadcasted!', 'warning');
   }
 
-  /**
-   * Process local location update
-   */
   processLocationTick(coords) {
     this.lastSelfCoords = coords;
     if (this.isPaused) return;
 
-    // If seeker and in live mode, send immediate telemetry if enough delta
     if (this.role === 'seeker' && this.state === 'ACTIVE' && Config.settings.seekerTrackingMode === 'live') {
       const now = Date.now();
       if (now - (this.lastSeekerSend || 0) >= (Config.settings.seekerPingInterval * 1000)) {
@@ -375,20 +498,18 @@ class ManhuntGame {
           role: 'seeker',
           speed: coords.speed,
           heading: coords.heading,
+          nickname: this.nickname,
           timestamp: now
         });
       }
     }
   }
 
-  /**
-   * Process remote telemetry packet
-   */
   onRemoteTelemetry(data) {
     const { playerId, lat, lng, role, isPingSnapshot, isReconSweep, nickname } = data;
     this.lastKnownPositions.set(playerId, { lat, lng, role, timestamp: Date.now(), nickname });
 
-    if (role === 'runner') {
+    if (role === 'runner' && !this.taggedRunners.has(playerId)) {
       this.activeRunners.add(playerId);
     } else if (role === 'seeker') {
       this.activeSeekers.add(playerId);
@@ -412,9 +533,6 @@ class ManhuntGame {
     this.evaluateDistances();
   }
 
-  /**
-   * Seeker selects a specific runner target
-   */
   selectTarget(targetId, targetNickname = null) {
     this.lockedTargetId = targetId;
     if (targetId) {
@@ -423,7 +541,6 @@ class ManhuntGame {
       UI.showToast('🎯 Radar tracking closest runner (Auto)', 'info');
     }
 
-    // Refresh active runner markers on map to reflect target lock beacon
     for (const [id, pos] of this.lastKnownPositions.entries()) {
       if (pos.role === 'runner') {
         MapController.updatePeerLocation(id, pos.lat, pos.lng, 'runner', pos.nickname || 'Runner', false);
@@ -433,13 +550,10 @@ class ManhuntGame {
     this.evaluateDistances();
   }
 
-  /**
-   * Host mission control actions
-   */
   sendHostCommand(cmd, data = {}) {
     if (!this.isHost) return;
     const packet = { cmd, data, timestamp: Date.now() };
-    Network.broadcast('host_command', packet);
+    Network.broadcast('host_command', packet, true);
     this.handleHostCommand(packet);
   }
 
@@ -467,6 +581,7 @@ class ManhuntGame {
           role: this.role,
           isPingSnapshot: true,
           isReconSweep: true,
+          nickname: this.nickname,
           timestamp: Date.now()
         });
         MapController.triggerPingWave(this.lastSelfCoords.lat, this.lastSelfCoords.lng, this.role === 'seeker' ? '#ff4757' : '#00f5b4');
@@ -527,19 +642,18 @@ class ManhuntGame {
     if (isSeeker) {
       runnerTargets.sort((a, b) => a.distance - b.distance);
 
-      // If no locked target, or locked target is no longer active, fallback to closest runner
       if (!closestOpponent && runnerTargets.length > 0) {
         closestOpponent = runnerTargets[0];
         closestDistance = closestOpponent.distance;
         closestBearing = closestOpponent.bearing;
       }
 
-      // Check Tag Range for Seeker
-      if (closestOpponent && closestOpponent.distance <= Config.settings.tagDistanceMeters) {
+      // Check Tag Range for Seeker using customized setting
+      const tagRange = Config.settings.tagDistanceMeters || 15;
+      if (closestOpponent && closestOpponent.distance <= tagRange) {
         tagCandidate = closestOpponent;
       }
 
-      // Update Target Selector Menu & pill
       UI.renderTargetList(runnerTargets, this.lockedTargetId);
     }
 
@@ -554,8 +668,9 @@ class ManhuntGame {
       UI.updateTagButtonState(tagCandidate);
     }
 
-    // Runner Proximity Warning Alarm (Beep / Haptic)
-    if (!isSeeker && closestDistance <= Config.settings.proximityAlertMeters) {
+    // Runner Proximity Warning Alarm
+    const proxLimit = Config.settings.proximityAlertMeters;
+    if (!isSeeker && proxLimit > 0 && closestDistance <= proxLimit) {
       const now = Date.now();
       if (now - this.lastProximityAlertTime >= (Config.settings.proximityAlertInterval * 1000)) {
         this.lastProximityAlertTime = now;
@@ -565,39 +680,191 @@ class ManhuntGame {
   }
 
   /**
-   * Seeker tags a runner
+   * Seeker initiates tag
    */
   tagRunner(targetPlayerId, runnerNickname) {
     if (this.role !== 'seeker') return;
 
-    const tagEvent = {
+    const tagDistance = this.nearestOpponentDistance ? Math.round(this.nearestOpponentDistance) : Config.settings.tagDistanceMeters;
+    const tagData = {
       seekerId: Network.playerId,
       seekerName: this.nickname,
       runnerId: targetPlayerId,
       runnerName: runnerNickname,
+      tagDistance: tagDistance,
       timestamp: Date.now()
     };
 
-    Network.broadcast('tag_event', tagEvent);
-    this.onRemoteTag(tagEvent);
+    if (Config.settings.requireTagConfirmation) {
+      UI.showToast(`📡 Tag sent to ${runnerNickname}. Awaiting confirmation...`, 'info');
+      Network.broadcast('tag_request', tagData, true);
+    } else {
+      // Instant tag mode
+      Network.broadcast('tag_confirmed', tagData, true);
+      this.onRemoteTagConfirmed(tagData);
+    }
   }
 
-  onRemoteTag(data) {
+  /**
+   * Runner receives tag request prompt
+   */
+  handleTagRequest(data) {
+    if (data.runnerId !== Network.playerId) return;
+
+    this.pendingTagRequest = data;
+    if (Config.settings.requireTagConfirmation) {
+      UI.showRunnerTagConfirmModal(data.seekerName, data.tagDistance);
+    } else {
+      // Automatic confirmation
+      this.confirmCaught();
+    }
+  }
+
+  /**
+   * Runner taps "I WAS CAUGHT"
+   */
+  confirmCaught() {
+    if (!this.pendingTagRequest) return;
+    const req = this.pendingTagRequest;
+    this.pendingTagRequest = null;
+    UI.closeModal('modal-runner-tag-confirm');
+
+    Network.broadcast('tag_confirmed', req, true);
+    this.onRemoteTagConfirmed(req);
+  }
+
+  /**
+   * Runner taps "DISPUTE"
+   */
+  disputeCaught() {
+    if (!this.pendingTagRequest) return;
+    const req = this.pendingTagRequest;
+    this.pendingTagRequest = null;
+    UI.closeModal('modal-runner-tag-confirm');
+
+    Network.broadcast('tag_disputed', {
+      ...req,
+      disputeReason: 'out_of_range_or_missed'
+    }, true);
+    UI.showToast('You disputed the tag (Out of range / missed).', 'warning');
+  }
+
+  handleTagDisputed(data) {
+    if (data.seekerId === Network.playerId) {
+      UI.showToast(`❌ ${data.runnerName} disputed your tag!`, 'danger');
+      UI.playAudioCue('warning');
+    } else {
+      UI.showToast(`⚠️ Tag dispute: ${data.runnerName} rejected tag by ${data.seekerName}`, 'warning');
+    }
+  }
+
+  /**
+   * Host anti-stall force tag
+   */
+  forceTagRunnerByHost(targetPlayerId, runnerNickname) {
+    if (!this.isHost) return;
+    const tagData = {
+      seekerId: Network.playerId,
+      seekerName: this.nickname + ' (Host Force)',
+      runnerId: targetPlayerId,
+      runnerName: runnerNickname,
+      tagDistance: 0,
+      timestamp: Date.now()
+    };
+    Network.broadcast('tag_confirmed', tagData, true);
+    this.onRemoteTagConfirmed(tagData);
+    UI.showToast(`👑 Host confirmed tag on ${runnerNickname}`, 'info');
+    this.populateHostControlsModal();
+  }
+
+  /**
+   * Process confirmed tag across all clients
+   */
+  onRemoteTagConfirmed(data) {
     const { seekerName, runnerId, runnerName } = data;
-    this.activeRunners.add(runnerId);
     this.taggedRunners.add(runnerId);
 
     UI.playAudioCue('tag');
     UI.showToast(`🎯 ${runnerName} was tagged by ${seekerName}!`, 'danger');
 
-    // If self was tagged
-    if (runnerId === Network.playerId) {
-      this.isTagged = true;
-      UI.showCapturedModal();
+    const isSelf = runnerId === Network.playerId;
+    const isInfection = Config.settings.runnerCaptureMode === 'infection';
+
+    if (isSelf) {
+      if (isInfection) {
+        // Converted to Seeker!
+        this.role = 'seeker';
+        Network.role = 'seeker';
+        UI.adaptHUDForRole('seeker');
+        UI.playAudioCue('siren');
+        UI.showToast('🧬 INFECTION! You are now a SEEKER! Hunt surviving runners!', 'danger');
+        if (this.lastSelfCoords) {
+          MapController.updateSelfLocation(this.lastSelfCoords.lat, this.lastSelfCoords.lng, 'seeker');
+          Network.broadcast('telemetry', {
+            lat: this.lastSelfCoords.lat,
+            lng: this.lastSelfCoords.lng,
+            role: 'seeker',
+            speed: this.lastSelfCoords.speed,
+            heading: this.lastSelfCoords.heading,
+            nickname: this.nickname,
+            timestamp: Date.now()
+          });
+        }
+      } else {
+        // Elimination Mode
+        this.isTagged = true;
+        UI.showCapturedModal();
+      }
+    } else {
+      if (isInfection) {
+        const peer = Network.peers.get(runnerId);
+        if (peer) peer.role = 'seeker';
+        const cached = this.lastKnownPositions.get(runnerId);
+        if (cached) {
+          cached.role = 'seeker';
+          MapController.updatePeerLocation(runnerId, cached.lat, cached.lng, 'seeker', runnerName, false);
+        }
+        this.activeRunners.delete(runnerId);
+        this.activeSeekers.add(runnerId);
+      }
     }
 
-    // Check if all runners have been tagged
+    this.populateHostControlsModal();
     this.checkVictoryConditions();
+  }
+
+  populateHostControlsModal() {
+    const list = document.getElementById('host-force-tag-list');
+    if (!list) return;
+    list.innerHTML = '';
+
+    const untaggedRunners = [];
+    if (this.role === 'runner' && !this.taggedRunners.has(Network.playerId)) {
+      untaggedRunners.push({ id: Network.playerId, nickname: this.nickname + ' (You)' });
+    }
+
+    for (const [id, peer] of Network.peers.entries()) {
+      if (peer.role === 'runner' && !this.taggedRunners.has(id)) {
+        untaggedRunners.push({ id: id, nickname: peer.nickname });
+      }
+    }
+
+    if (untaggedRunners.length === 0) {
+      list.innerHTML = '<div style="font-size:0.75rem; color:var(--theme-text-muted); padding:4px;">No active runners to tag</div>';
+      return;
+    }
+
+    untaggedRunners.forEach(r => {
+      const item = document.createElement('div');
+      item.className = 'force-tag-item';
+      item.innerHTML = `
+        <span>${r.nickname}</span>
+        <button type="button" class="btn-force-tag" onclick="Game.forceTagRunnerByHost('${r.id}', '${r.nickname}')">
+          FORCE TAG
+        </button>
+      `;
+      list.appendChild(item);
+    });
   }
 
   checkVictoryConditions() {
@@ -625,11 +892,13 @@ class ManhuntGame {
 
     if (reason === 'all_runners_tagged') {
       winner = 'Seekers';
-      message = 'All runners were hunted down and captured!';
+      message = Config.settings.runnerCaptureMode === 'infection'
+        ? 'Infection complete! All runners were hunted down and converted!'
+        : 'All runners were captured by the seekers!';
       UI.playAudioCue('victory');
     } else if (reason === 'time_expired') {
       winner = 'Runners';
-      message = 'Time expired! Surviving runners evaded capture!';
+      message = 'Time expired! Surviving runners successfully evaded pursuit!';
       UI.playAudioCue('victory');
     }
 
@@ -646,6 +915,7 @@ class ManhuntGame {
     if (this.gameLoopInterval) clearInterval(this.gameLoopInterval);
     this.isPaused = false;
     this.lockedTargetId = null;
+    this.pendingTagRequest = null;
     Geo.stopTracking();
     Network.disconnect();
     this.state = 'LOBBY';

@@ -175,17 +175,48 @@
               <option value="0">Unlimited</option>
             </select>
           </div>
+
+          <div class="input-group" style="margin-bottom:0;">
+            <label class="input-label" for="lobby-tag-distance">Tag Distance</label>
+            <select id="lobby-tag-distance" class="tactical-input">
+              <option value="5">5 Meters (Touch)</option>
+              <option value="10">10 Meters (Close)</option>
+              <option value="15" selected>15 Meters (Standard)</option>
+              <option value="20">20 Meters (Leniency)</option>
+              <option value="25">25 Meters (Wide)</option>
+              <option value="30">30 Meters (Long Range)</option>
+              <option value="50">50 Meters (Open Field)</option>
+            </select>
+          </div>
+
+          <div class="input-group" style="margin-bottom:0;">
+            <label class="input-label" for="lobby-capture-mode">Post-Catch Mode</label>
+            <select id="lobby-capture-mode" class="tactical-input">
+              <option value="infection" selected>Infection (Turns into Seeker)</option>
+              <option value="elimination">Elimination (Spectator)</option>
+            </select>
+          </div>
         </div>
 
-        <div class="input-group" style="margin-top:10px; margin-bottom:0;">
-          <label class="input-label" for="lobby-boundary">Play Boundary Radius</label>
-          <select id="lobby-boundary" class="tactical-input">
-            <option value="0">Off (No Boundary)</option>
-            <option value="500">500 Meters</option>
-            <option value="1000">1.0 Kilometer</option>
-            <option value="1500" selected>1.5 Kilometers</option>
-            <option value="3000">3.0 Kilometers</option>
-          </select>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
+          <div class="input-group" style="margin-bottom:0;">
+            <label class="input-label" for="lobby-tag-confirm">Tag Confirmation</label>
+            <select id="lobby-tag-confirm" class="tactical-input">
+              <option value="true" selected>Required (Runner Confirms)</option>
+              <option value="false">Instant (Seeker Final)</option>
+            </select>
+          </div>
+
+          <div class="input-group" style="margin-bottom:0;">
+            <label class="input-label" for="lobby-boundary">Play Boundary Radius</label>
+            <select id="lobby-boundary" class="tactical-input">
+              <option value="0">Off (No Boundary)</option>
+              <option value="500">500 Meters</option>
+              <option value="1000">1.0 Kilometer</option>
+              <option value="1500" selected>1.5 Kilometers</option>
+              <option value="3000">3.0 Kilometers</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -202,6 +233,8 @@
           <span class="status-badge status-online" id="chip-runner-ping">RUNNER PING: 5M</span>
           <span class="status-badge status-online" id="chip-grace-period">GRACE: 3M</span>
           <span class="status-badge status-online" id="chip-match-duration">DURATION: 45M</span>
+          <span class="status-badge status-online" id="chip-tag-distance">TAG: 15M</span>
+          <span class="status-badge status-online" id="chip-capture-mode">MODE: INFECTION</span>
           <span class="status-badge status-online" id="chip-boundary">BOUNDARY: 1.5KM</span>
         </div>
       </div>
@@ -394,10 +427,42 @@
           <div class="input-group">
             <label class="input-label" for="setting-tag-distance">Tag Confirmation Radius</label>
             <select id="setting-tag-distance" class="tactical-input">
+              <option value="5">5 Meters (Physical Touch)</option>
               <option value="10">10 Meters (Close Physical Tag)</option>
               <option value="15" selected>15 Meters (Standard GPS)</option>
               <option value="20">20 Meters (Leniency Mode)</option>
+              <option value="25">25 Meters (Tactical Radius)</option>
               <option value="30">30 Meters (Open Field / Park)</option>
+              <option value="50">50 Meters (Wide Open / Vehicular)</option>
+            </select>
+          </div>
+
+          <div class="input-group">
+            <label class="input-label" for="setting-capture-mode">Post-Catch Game Mode</label>
+            <select id="setting-capture-mode" class="tactical-input">
+              <option value="infection" selected>Infection Mode (Caught runners become Seekers)</option>
+              <option value="elimination">Elimination Mode (Caught runners become Spectators)</option>
+            </select>
+          </div>
+
+          <div class="input-group">
+            <label class="input-label" for="setting-tag-confirm">Tag Mobile Confirmation</label>
+            <select id="setting-tag-confirm" class="tactical-input">
+              <option value="true" selected>Required (Runner must confirm capture on phone)</option>
+              <option value="false">Instant (Seeker tag is immediately recorded)</option>
+            </select>
+          </div>
+
+          <div class="input-group">
+            <label class="input-label" for="setting-proximity-distance">Proximity Warning Alarm Distance</label>
+            <select id="setting-proximity-distance" class="tactical-input">
+              <option value="0">Off (No Audio Warning)</option>
+              <option value="25">25 Meters (Danger Close)</option>
+              <option value="50">50 Meters (Tactical Caution)</option>
+              <option value="75">75 Meters</option>
+              <option value="100" selected>100 Meters (Standard)</option>
+              <option value="150">150 Meters (Early Warning)</option>
+              <option value="200">200 Meters (Extended Radar)</option>
             </select>
           </div>
 
@@ -522,6 +587,28 @@
       </div>
     </section>
 
+    <!-- Runner Tag Verification Modal (Mobile Confirmation) -->
+    <div id="modal-runner-tag-confirm" class="modal-backdrop">
+      <div class="modal-content" style="max-width:440px; text-align:center; border: 2px solid var(--theme-seeker); box-shadow: 0 0 32px rgba(255, 71, 87, 0.45);">
+        <div style="font-size:3.2rem; margin-bottom:8px; animation: pulse 1s infinite alternate;">🚨</div>
+        <h2 style="color:var(--theme-seeker); font-size:1.45rem; font-weight:900; letter-spacing:0.06em; margin-bottom:6px;">TAG VERIFICATION</h2>
+        <p style="color:var(--theme-text-primary); font-size:0.95rem; font-weight:700; margin-bottom:6px;">
+          Seeker <span id="tag-confirm-seeker-name" style="color:var(--theme-seeker); text-decoration:underline;">Seeker</span> claims to have tagged you!
+        </p>
+        <p style="color:var(--theme-text-muted); font-size:0.82rem; margin-bottom:20px; line-height:1.4;">
+          Approximate GPS Tag Distance: <strong id="tag-confirm-distance" style="color:var(--theme-text-primary);">-- m</strong>.<br>Did they catch you? Confirm capture or dispute.
+        </p>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <button type="button" id="btn-confirm-caught" class="btn-primary" style="background:var(--theme-gradient-seeker); color:#fff; padding:14px; font-weight:900;">
+            <span>🎯</span> I WAS CAUGHT
+          </button>
+          <button type="button" id="btn-dispute-caught" class="btn-secondary" style="border-color:var(--theme-border); padding:12px; font-weight:700;">
+            <span>❌</span> DISPUTE (MISSED / OUT OF RANGE)
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Captured Modal Overlay -->
     <div id="modal-captured" class="modal-backdrop">
       <div class="modal-content">
@@ -599,6 +686,16 @@
               <div style="font-size:0.72rem; color:var(--theme-text-secondary);">Ping all runner & seeker coordinates immediately</div>
             </div>
           </button>
+
+          <!-- Host Force Tag / Anti-Stall Section -->
+          <div style="border-top:1px solid var(--theme-border); padding-top:10px; margin-top:4px;">
+            <div style="font-size:0.75rem; font-weight:800; color:var(--theme-text-secondary); margin-bottom:6px; letter-spacing:0.05em;">
+              FORCE TAG OVERRIDE (ANTI-STALL)
+            </div>
+            <div id="host-force-tag-list" style="display:flex; flex-direction:column; gap:6px; max-height:120px; overflow-y:auto;">
+              <!-- Dynamically populated with active runners -->
+            </div>
+          </div>
 
           <!-- Emergency Abort -->
           <button type="button" id="btn-host-abort-match" class="btn-primary" style="width:100%; justify-content:center; padding:12px 16px; background:var(--theme-gradient-seeker); color:#fff; margin-top:6px;">
@@ -799,13 +896,13 @@
   <script src="js/leaflet.js"></script>
 
   <!-- Application Modules -->
-  <script src="js/config.js?v=2.2"></script>
-  <script src="js/geo.js?v=2.2"></script>
-  <script src="js/network.js?v=2.2"></script>
-  <script src="js/map.js?v=2.2"></script>
-  <script src="js/simulation.js?v=2.2"></script>
-  <script src="js/game.js?v=2.2"></script>
-  <script src="js/ui.js?v=2.2"></script>
+  <script src="js/config.js?v=2.3"></script>
+  <script src="js/geo.js?v=2.3"></script>
+  <script src="js/network.js?v=2.3"></script>
+  <script src="js/map.js?v=2.3"></script>
+  <script src="js/simulation.js?v=2.3"></script>
+  <script src="js/game.js?v=2.3"></script>
+  <script src="js/ui.js?v=2.3"></script>
 
   <!-- Main Entrypoint & Service Worker Registration with Auto-Update -->
   <script>
@@ -818,7 +915,7 @@
       if ('caches' in window) {
         caches.keys().then(keys => {
           keys.forEach(k => {
-            if (k !== 'manhunt-v2.2.0') {
+            if (k !== 'manhunt-v2.3.0') {
               caches.delete(k);
             }
           });
@@ -827,7 +924,7 @@
 
       // Register PWA service worker with auto-update check
       if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-        navigator.serviceWorker.register('./service-worker.js?v=2.2')
+        navigator.serviceWorker.register('./service-worker.js?v=2.3')
           .then(reg => {
             // Check for update on every page load
             reg.update();
