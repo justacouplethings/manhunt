@@ -161,6 +161,48 @@ class SimulationEngine {
     }
   }
 
+  removeBot(botId) {
+    const idx = this.simulatedBots.findIndex(b => b.id === botId);
+    if (idx !== -1) {
+      this.simulatedBots.splice(idx, 1);
+      if (typeof Network !== 'undefined' && Network.peers) {
+        Network.peers.delete(botId);
+      }
+      if (typeof MapController !== 'undefined' && MapController.removePeer) {
+        MapController.removePeer(botId);
+      }
+      if (typeof Game !== 'undefined') {
+        if (Game.activeRunners) Game.activeRunners.delete(botId);
+        if (Game.activeSeekers) Game.activeSeekers.delete(botId);
+        if (Game.updatePlayerRoster) Game.updatePlayerRoster();
+      }
+      return true;
+    }
+    return false;
+  }
+
+  swapBotRole(botId, newRole = null) {
+    const bot = this.simulatedBots.find(b => b.id === botId);
+    if (bot) {
+      bot.role = newRole || (bot.role === 'runner' ? 'seeker' : 'runner');
+      if (typeof Network !== 'undefined' && Network.peers && Network.peers.has(botId)) {
+        Network.peers.get(botId).role = bot.role;
+      }
+      if (typeof Game !== 'undefined') {
+        if (bot.role === 'seeker') {
+          if (Game.activeRunners) Game.activeRunners.delete(botId);
+          if (Game.activeSeekers) Game.activeSeekers.add(botId);
+        } else {
+          if (Game.activeSeekers) Game.activeSeekers.delete(botId);
+          if (Game.activeRunners) Game.activeRunners.add(botId);
+        }
+        if (Game.updatePlayerRoster) Game.updatePlayerRoster();
+      }
+      return bot.role;
+    }
+    return null;
+  }
+
   stop() {
     if (this.intervalId) {
       clearInterval(this.intervalId);

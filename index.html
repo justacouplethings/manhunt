@@ -650,6 +650,12 @@
             <button type="button" class="btn-ghost" style="padding:2px 8px; font-size:0.75rem; color:#090d16; border-color:#090d16; font-weight:800;" onclick="Admin.cancelMapTapSpawnMode()">✕ Cancel</button>
           </div>
 
+          <!-- Tap to Set Waypoint Banner -->
+          <div id="admin-map-waypoint-banner" class="admin-map-banner" style="display:none; background:#38bdf8; color:#0f172a;">
+            <div id="admin-map-waypoint-banner-text">🎯 Tap anywhere on map to set bot destination</div>
+            <button type="button" class="btn-ghost" style="padding:2px 8px; font-size:0.75rem; color:#090d16; border-color:#090d16; font-weight:800;" onclick="Admin.cancelWaypointMode()">✕ Cancel</button>
+          </div>
+
           <!-- Focused Player HUD Card -->
           <div id="admin-map-player-focus-card" class="admin-focus-card" style="display:none;">
             <div class="admin-focus-header">
@@ -725,6 +731,24 @@
                 <select id="admin-bot-role" class="tactical-select">
                   <option value="runner">🏃 Runner (Stealth / Pings)</option>
                   <option value="seeker">🎯 Seeker (Live Pursuer)</option>
+                </select>
+              </div>
+
+              <div class="input-group">
+                <label class="input-label" for="admin-bot-speed">Bot Speed</label>
+                <select id="admin-bot-speed" class="tactical-select">
+                  <option value="1.4">🚶 Walk (1.4 m/s - 5.0 km/h)</option>
+                  <option value="2.8" selected>🏃 Jog (2.8 m/s - 10.0 km/h)</option>
+                  <option value="5.0">⚡ Run (5.0 m/s - 18.0 km/h)</option>
+                  <option value="8.0">🚀 Sprint (8.0 m/s - 28.8 km/h)</option>
+                </select>
+              </div>
+
+              <div class="input-group">
+                <label class="input-label" for="admin-bot-movement">Movement Behavior</label>
+                <select id="admin-bot-movement" class="tactical-select">
+                  <option value="moving" selected>🟢 Moving / Patrol</option>
+                  <option value="stopped">🛑 Stationary (Do Not Move)</option>
                 </select>
               </div>
             </div>

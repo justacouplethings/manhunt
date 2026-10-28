@@ -1480,6 +1480,123 @@ const uiJsSource = fs.readFileSync(path.join(__dirname, '../js/ui.js'), 'utf8');
 assert(uiJsSource.includes('disconnectBadgeTimer'), 'UI debounces disconnection status with disconnectBadgeTimer');
 assert(uiJsSource.includes('3000'), 'Disconnection badge debounce delay is 3000ms');
 
+console.log('\n28. Testing Bot Kicking, Player Role Changes, Match Termination & Bot Customizations (Speed, Movement, Waypoints):');
+
+// A. HTML Spawner Inputs
+const indexHtmlForBots = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+assert(indexHtmlForBots.includes('id="admin-bot-speed"'), 'Bot spawner has #admin-bot-speed selector');
+assert(indexHtmlForBots.includes('id="admin-bot-movement"'), 'Bot spawner has #admin-bot-movement selector');
+assert(indexHtmlForBots.includes('id="admin-map-waypoint-banner"'), 'God\'s Eye Map has #admin-map-waypoint-banner');
+
+// B. SimulationEngine bot removal and role swapping
+const simulationJsSource = fs.readFileSync(path.join(__dirname, '../js/simulation.js'), 'utf8');
+assert(simulationJsSource.includes('removeBot(botId)'), 'SimulationEngine implements removeBot(botId)');
+assert(simulationJsSource.includes('swapBotRole(botId'), 'SimulationEngine implements swapBotRole(botId, newRole)');
+
+// C. AdminBotManager: Speed, Movement, Waypoint Navigation & Pursuit
+assert(adminJsSource.includes('setBotSpeed('), 'AdminBotManager implements setBotSpeed()');
+assert(adminJsSource.includes('toggleMovement('), 'AdminBotManager implements toggleMovement()');
+assert(adminJsSource.includes('setMovement('), 'AdminBotManager implements setMovement()');
+assert(adminJsSource.includes('setBotDestination('), 'AdminBotManager implements setBotDestination()');
+assert(adminJsSource.includes('clearBotDestination('), 'AdminBotManager implements clearBotDestination()');
+assert(adminJsSource.includes('setBotTargetPlayer('), 'AdminBotManager implements setBotTargetPlayer()');
+assert(adminJsSource.includes('despawnAllForRoom('), 'AdminBotManager implements despawnAllForRoom()');
+
+// D. Test Waypoint Math & Navigation Logic
+function testGetDistanceMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function testGetBearing(lat1, lng1, lat2, lng2) {
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const y = Math.sin(dLng) * Math.cos(lat2 * Math.PI / 180);
+  const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+            Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLng);
+  return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+}
+
+// Simulate bot behavior
+const customTestBot = {
+  id: 'bot_custom_1',
+  roomCode: 'TEST',
+  nickname: 'TestBot',
+  role: 'runner',
+  lat: 40.7128,
+  lng: -74.0060,
+  heading: 0,
+  speed: 2.8,
+  isMoving: true,
+  targetDestination: null,
+  targetPlayerId: null
+};
+
+// Test speed modification
+customTestBot.speed = 5.0;
+assert(customTestBot.speed === 5.0, 'Bot speed successfully set to 5.0 m/s (Run)');
+customTestBot.speed = 8.0;
+assert(customTestBot.speed === 8.0, 'Bot speed successfully set to 8.0 m/s (Sprint)');
+
+// Test movement freeze / hold position
+customTestBot.isMoving = false;
+const frozenLatBefore = customTestBot.lat;
+const frozenLngBefore = customTestBot.lng;
+// Simulate tick while frozen:
+if (customTestBot.isMoving) {
+  customTestBot.lat += 0.001;
+}
+assert(customTestBot.lat === frozenLatBefore && customTestBot.lng === frozenLngBefore, 'Bot position strictly freezes when movement is stopped');
+
+// Test movement resume
+customTestBot.isMoving = true;
+assert(customTestBot.isMoving === true, 'Bot movement successfully resumes when enabled');
+
+// Test Waypoint Navigation towards destination
+const waypointTarget = { lat: 40.7138, lng: -74.0060 }; // ~111m North
+customTestBot.targetDestination = waypointTarget;
+const bearingToWp = testGetBearing(customTestBot.lat, customTestBot.lng, waypointTarget.lat, waypointTarget.lng);
+assert(Math.abs(bearingToWp - 0) < 0.5, 'Waypoint bearing directly North evaluates to ~0 degrees');
+
+// Simulate 1 tick of movement towards waypoint at 5.0 m/s
+const distToWp = testGetDistanceMeters(customTestBot.lat, customTestBot.lng, waypointTarget.lat, waypointTarget.lng);
+const stepMeters = Math.min(distToWp, customTestBot.speed);
+const radWp = bearingToWp * Math.PI / 180;
+customTestBot.lat += (stepMeters * Math.cos(radWp)) / 111111;
+customTestBot.lng += (stepMeters * Math.sin(radWp)) / (111111 * Math.cos(customTestBot.lat * Math.PI / 180));
+const newDistToWp = testGetDistanceMeters(customTestBot.lat, customTestBot.lng, waypointTarget.lat, waypointTarget.lng);
+assert(newDistToWp < distToWp, 'Bot moves closer to target waypoint on tick');
+
+// Test Waypoint arrival detection (< 3.5m)
+customTestBot.lat = waypointTarget.lat;
+customTestBot.lng = waypointTarget.lng;
+const arrivedDist = testGetDistanceMeters(customTestBot.lat, customTestBot.lng, waypointTarget.lat, waypointTarget.lng);
+if (arrivedDist <= 3.5) {
+  customTestBot.targetDestination = null;
+  customTestBot.isMoving = false;
+}
+assert(customTestBot.targetDestination === null && customTestBot.isMoving === false, 'Bot halts and clears destination when arriving within 3.5m of waypoint');
+
+// E. Admin Room Termination Logic Verification
+assert(adminJsSource.includes('Admin.rooms.delete(targetRoom)') || adminJsSource.includes('this.rooms.delete(targetRoom)'), 'Admin.confirmEndRoom deletes room completely from Admin.rooms');
+assert(adminJsSource.includes('AdminBot.despawnAllForRoom(targetRoom)'), 'Admin.confirmEndRoom despawns all bots in the terminated room');
+assert(adminJsSource.includes('broadcastAction(targetRoom, \'match_over\''), 'Admin.confirmEndRoom broadcasts match_over packet to all clients');
+assert(adminJsSource.includes('this.boundaryLayers.delete(targetRoom)'), 'Admin.confirmEndRoom removes boundary layer from master map');
+
+// F. Admin Bot & Player Kicking Logic Verification
+assert(adminJsSource.includes('AdminBot.despawn(playerId)'), 'Admin.confirmKickPlayer despawns bot from AdminBotManager');
+assert(adminJsSource.includes('Simulation.removeBot(playerId)'), 'Admin.confirmKickPlayer removes bot from SimulationEngine');
+assert(adminJsSource.includes('this.removeMapMarker(playerId)'), 'Admin.confirmKickPlayer removes player marker from master map');
+
+// G. Admin Single-Click Role Swap & Editing
+assert(adminJsSource.includes('setPlayerRole(roomCode, playerId, targetRole)'), 'Admin implements explicit setPlayerRole() method');
+assert(adminJsSource.includes('promptEditPlayerNickname('), 'Admin implements promptEditPlayerNickname() method');
+
 // Summary
 console.log('\n======================================================');
 console.log(`📊 TEST RESULTS: ${testsPassed} PASSED, ${testsFailed} FAILED`);

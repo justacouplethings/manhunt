@@ -16,7 +16,9 @@ class AdminEngine {
     this.selectedRoomCode = null;
     this.selectedPlayerId = null;
     this.selectedBotId = null;
+    this.selectedWaypointBotId = null;
     this.isMapPlacementMode = false;
+    this.isWaypointMode = false;
     this.pendingBotSpawn = null;
     this.followPlayerId = null;
     this.previousScreen = 'screen-lobby';
@@ -24,6 +26,7 @@ class AdminEngine {
     // Master Map
     this.masterMap = null;
     this.playerMarkers = new Map(); // playerId -> L.marker
+    this.waypointMarkers = new Map(); // botId -> L.marker
     this.boundaryLayers = new Map(); // roomCode -> L.circle
     
     // Network monitor
@@ -422,6 +425,47 @@ class AdminEngine {
   }
 
   /**
+   * Broadcast an arbitrary network action event (e.g. match_over, alert)
+   */
+  broadcastAction(roomCode, action, payloadData) {
+    const targetRoom = (roomCode || 'GLOBAL').toUpperCase().trim();
+    const packet = {
+      msgId: 'm_act_' + Math.random().toString(36).substring(2, 9) + '_' + Date.now(),
+      senderId: 'admin_console',
+      action: action,
+      roomCode: targetRoom,
+      data: payloadData,
+      timestamp: Date.now()
+    };
+
+    if (this.mqttClient && this.mqttClient.isConnected()) {
+      try {
+        const topic = `manhunt/room/${targetRoom}/${action}`;
+        const message = new Paho.MQTT.Message(JSON.stringify(packet));
+        message.destinationName = topic;
+        message.qos = 0;
+        this.mqttClient.send(message);
+      } catch (e) {}
+    }
+
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        const bc = new BroadcastChannel('manhunt_' + targetRoom);
+        bc.postMessage(packet);
+        setTimeout(() => { try { bc.close(); } catch (e) {} }, 500);
+      }
+    } catch (e) {}
+
+    if (typeof Network !== 'undefined' && Network.roomCode === targetRoom) {
+      if (typeof Game !== 'undefined') {
+        if (action === 'match_over') {
+          Game.onRemoteGameOver(payloadData);
+        }
+      }
+    }
+  }
+
+  /**
    * Prune inactive rooms and players (inactive > 45s)
    */
   pruneStaleData() {
@@ -578,10 +622,96 @@ class AdminEngine {
   }
 
   confirmEndRoom(roomCode) {
-    if (confirm(`Are you sure you want to forcibly terminate Operation ${roomCode}? All players will be returned to lobby.`)) {
-      this.broadcastCommand(roomCode, { type: 'force_end', reason: 'Admin Terminated Match' });
-      UI.showToast(`Operation ${roomCode} Terminated`, 'danger');
+    const targetRoom = (roomCode || '').toUpperCase().trim();
+    if (!confirm(`Are you sure you want to forcibly terminate Operation ${targetRoom}? All players will be returned to lobby.`)) {
+      return;
     }
+
+    // 1. Broadcast termination command to all clients in that room
+    this.broadcastCommand(targetRoom, {
+      type: 'force_end',
+      roomCode: targetRoom,
+      reason: 'Admin Terminated Match'
+    });
+
+    // 2. Broadcast match_over event so all connected clients transition to game over/lobby
+    const gameOverPayload = {
+      winner: 'Terminated',
+      message: 'Operation terminated by System Administrator',
+      duration: 0,
+      totalRunners: 0,
+      taggedCount: 0,
+      timestamp: Date.now()
+    };
+    this.broadcastAction(targetRoom, 'match_over', gameOverPayload);
+
+    // 3. Despawn any bots belonging to this room
+    if (typeof AdminBot !== 'undefined') {
+      AdminBot.despawnAllForRoom(targetRoom);
+    }
+    if (typeof Simulation !== 'undefined' && Simulation.isActive) {
+      Simulation.stop();
+    }
+
+    // 4. Remove all players belonging to this room from allPlayers and remove their map markers
+    const room = this.rooms.get(targetRoom);
+    if (room && room.players) {
+      for (const pId of room.players.keys()) {
+        this.allPlayers.delete(pId);
+        this.removeMapMarker(pId);
+        if (typeof Network !== 'undefined' && Network.peers) {
+          Network.peers.delete(pId);
+        }
+      }
+    }
+    for (const [pId, p] of this.allPlayers.entries()) {
+      if (p.roomCode === targetRoom) {
+        this.allPlayers.delete(pId);
+        this.removeMapMarker(pId);
+      }
+    }
+
+    // 5. Remove boundary layer on master map
+    const boundary = this.boundaryLayers.get(targetRoom);
+    if (boundary && this.masterMap) {
+      this.masterMap.removeLayer(boundary);
+      this.boundaryLayers.delete(targetRoom);
+    }
+
+    // 6. Delete the room completely from Admin.rooms
+    this.rooms.delete(targetRoom);
+    if (this.selectedRoomCode === targetRoom) {
+      this.selectedRoomCode = null;
+    }
+
+    // 7. If local player was in this room, reset local match state cleanly without navigating away from screen-admin
+    if (typeof Game !== 'undefined' && (Game.roomCode === targetRoom || !Game.roomCode)) {
+      Game.state = 'LOBBY';
+      Game.isPaused = false;
+      Game.roomCode = null;
+      if (Game.gameLoopInterval) {
+        clearInterval(Game.gameLoopInterval);
+        Game.gameLoopInterval = null;
+      }
+      if (typeof MapController !== 'undefined' && MapController.clearPeers) {
+        MapController.clearPeers();
+      }
+      if (typeof UI !== 'undefined' && UI.setPauseState) {
+        UI.setPauseState(false);
+      }
+    }
+
+    // 8. Re-render all admin tabs immediately
+    this.updateStatsBar();
+    this.renderRoomsTab();
+    this.renderPlayersTab();
+    if (this.currentTab === 'bots') this.renderBotsTab();
+    if (this.currentTab === 'map') {
+      this.updateMasterMapMarkers();
+      this.updateMapRoomFilterOptions();
+    }
+
+    UI.showToast(`Operation ${targetRoom} Terminated & Removed`, 'danger');
   }
 
   viewRoomOnMap(roomCode) {
@@ -661,9 +791,18 @@ class AdminEngine {
             <span class="admin-meta-val" style="font-family:monospace; font-size:0.8rem;">${coordsText}</span>
           </div>
 
-          <div class="admin-card-actions" style="margin-top:12px;">
-            <button type="button" class="admin-action-btn btn-warning" onclick="Admin.swapPlayerRole('${player.roomCode}', '${player.id}', '${player.role}')">
-              🔄 Set ${player.role === 'runner' ? 'Seeker' : 'Runner'}
+          <div class="admin-card-actions" style="margin-top:12px; display:flex; flex-wrap:wrap; gap:8px;">
+            <button type="button" class="admin-action-btn btn-warning" onclick="Admin.swapPlayerRole('${player.roomCode}', '${player.id}', '${player.role}')" title="Toggle role">
+              🔄 Swap Role
+            </button>
+            <button type="button" class="admin-action-btn ${player.role === 'runner' ? 'btn-ghost' : 'btn-secondary'}" onclick="Admin.setPlayerRole('${player.roomCode}', '${player.id}', 'runner')" title="Set Runner">
+              🏃 Set Runner
+            </button>
+            <button type="button" class="admin-action-btn ${player.role === 'seeker' ? 'btn-ghost' : 'btn-secondary'}" onclick="Admin.setPlayerRole('${player.roomCode}', '${player.id}', 'seeker')" title="Set Seeker">
+              🎯 Set Seeker
+            </button>
+            <button type="button" class="admin-action-btn btn-ghost" onclick="Admin.promptEditPlayerNickname('${player.roomCode}', '${player.id}')" title="Edit player callsign">
+              ✏️ Name
             </button>
             <button type="button" class="admin-action-btn btn-primary" onclick="Admin.locatePlayerOnMap('${player.id}')">
               📍 Locate
@@ -681,11 +820,10 @@ class AdminEngine {
     container.innerHTML = html;
   }
 
-  swapPlayerRole(roomCode, playerId, currentRole) {
+  setPlayerRole(roomCode, playerId, targetRole) {
     const targetRoom = (roomCode || Game.roomCode || 'GLOBAL').toUpperCase();
     const p = this.allPlayers.get(playerId);
-    const effRole = currentRole || (p ? p.role : 'runner');
-    const newRole = effRole === 'runner' ? 'seeker' : 'runner';
+    const newRole = targetRole === 'seeker' ? 'seeker' : 'runner';
 
     // 1. Update in Admin caches immediately
     if (p) p.role = newRole;
@@ -695,8 +833,8 @@ class AdminEngine {
       rp.role = newRole;
     }
 
-    // 2. If it is a bot, update bot manager immediately
-    if (typeof AdminBot !== 'undefined' && AdminBot.isBotActive(playerId)) {
+    // 2. If it is an Admin bot, update bot manager immediately
+    if (typeof AdminBot !== 'undefined' && (AdminBot.isBotActive(playerId) || playerId.startsWith('bot_'))) {
       const b = AdminBot.bots.find(x => x.id === playerId);
       if (b) {
         b.role = newRole;
@@ -705,7 +843,12 @@ class AdminEngine {
       }
     }
 
-    // 3. Update local Network and Game state immediately
+    // 3. If it is a Simulation bot, update simulation engine
+    if (typeof Simulation !== 'undefined' && Simulation.isActive) {
+      Simulation.swapBotRole(playerId, newRole);
+    }
+
+    // 4. Update local Network and Game state immediately
     if (typeof Network !== 'undefined') {
       if (Network.peers && Network.peers.has(playerId)) {
         Network.peers.get(playerId).role = newRole;
@@ -740,14 +883,14 @@ class AdminEngine {
       }
     }
 
-    // 4. Broadcast admin command to room / relay
+    // 5. Broadcast admin command to room / relay
     this.broadcastCommand(targetRoom, {
       type: 'set_role',
       targetPlayerId: playerId,
       newRole: newRole
     });
 
-    // 5. Re-render UI
+    // 6. Re-render UI
     this.renderPlayersTab();
     if (this.currentTab === 'bots') this.renderBotsTab();
     if (this.currentTab === 'map') {
@@ -759,17 +902,104 @@ class AdminEngine {
     UI.showToast(`Assigned ${p ? p.nickname : playerId} to ${newRole.toUpperCase()}`, 'info');
   }
 
-  confirmKickPlayer(roomCode, playerId, nickname) {
-    if (confirm(`Kick ${nickname} from Operation ${roomCode}?`)) {
-      this.broadcastCommand(roomCode, {
-        type: 'kick_player',
-        targetPlayerId: playerId,
-        reason: 'Removed by System Administrator'
-      });
-      this.allPlayers.delete(playerId);
-      this.renderPlayersTab();
-      UI.showToast(`Kicked ${nickname}`, 'danger');
+  swapPlayerRole(roomCode, playerId, currentRole) {
+    const p = this.allPlayers.get(playerId);
+    const effRole = currentRole || (p ? p.role : 'runner');
+    const newRole = effRole === 'runner' ? 'seeker' : 'runner';
+    this.setPlayerRole(roomCode, playerId, newRole);
+  }
+
+  promptEditPlayerNickname(roomCode, playerId) {
+    const p = this.allPlayers.get(playerId);
+    const currentName = p ? p.nickname : 'Operative';
+    const newName = prompt(`Enter new callsign for ${currentName}:`, currentName);
+    if (!newName || !newName.trim() || newName.trim() === currentName) return;
+
+    const trimmed = newName.trim();
+    if (p) p.nickname = trimmed;
+    const targetRoom = (roomCode || (p ? p.roomCode : 'GLOBAL')).toUpperCase();
+    const room = this.rooms.get(targetRoom);
+    if (room && room.players.has(playerId)) {
+      room.players.get(playerId).nickname = trimmed;
     }
+    if (typeof Network !== 'undefined' && Network.peers && Network.peers.has(playerId)) {
+      Network.peers.get(playerId).nickname = trimmed;
+    }
+    if (typeof AdminBot !== 'undefined') {
+      const b = AdminBot.bots.find(x => x.id === playerId);
+      if (b) {
+        b.nickname = trimmed;
+        AdminBot.broadcastBotPresence(b);
+      }
+    }
+
+    this.broadcastCommand(targetRoom, {
+      type: 'set_nickname',
+      targetPlayerId: playerId,
+      nickname: trimmed
+    });
+
+    this.renderPlayersTab();
+    if (this.currentTab === 'bots') this.renderBotsTab();
+    if (this.currentTab === 'map') this.updateMasterMapMarkers();
+    UI.showToast(`Updated callsign to "${trimmed}"`, 'info');
+  }
+
+  confirmKickPlayer(roomCode, playerId, nickname) {
+    if (!confirm(`Kick ${nickname} from Operation ${roomCode}?`)) {
+      return;
+    }
+
+    const targetRoom = (roomCode || Game.roomCode || 'GLOBAL').toUpperCase().trim();
+
+    // 1. Broadcast kick command
+    this.broadcastCommand(targetRoom, {
+      type: 'kick_player',
+      targetPlayerId: playerId,
+      reason: 'Removed by System Administrator'
+    });
+
+    // 2. If it is an AdminBot or bot ID, despawn it immediately
+    if (typeof AdminBot !== 'undefined' && (AdminBot.isBotActive(playerId) || playerId.startsWith('bot_'))) {
+      AdminBot.despawn(playerId);
+    }
+
+    // 3. If it is a Simulation bot, remove it
+    if (typeof Simulation !== 'undefined' && Simulation.isActive) {
+      Simulation.removeBot(playerId);
+    }
+
+    // 4. Remove from Admin state
+    this.allPlayers.delete(playerId);
+    const room = this.rooms.get(targetRoom);
+    if (room && room.players) {
+      room.players.delete(playerId);
+      room.playerCount = room.players.size;
+    }
+
+    // 5. Remove map marker
+    this.removeMapMarker(playerId);
+
+    // 6. Remove from local Network peers & Game rosters
+    if (typeof Network !== 'undefined' && Network.peers) {
+      Network.peers.delete(playerId);
+    }
+    if (typeof Game !== 'undefined') {
+      if (Game.activeRunners) Game.activeRunners.delete(playerId);
+      if (Game.activeSeekers) Game.activeSeekers.delete(playerId);
+      if (Game.updatePlayerRoster) Game.updatePlayerRoster();
+    }
+    if (typeof MapController !== 'undefined' && MapController.removePeer) {
+      MapController.removePeer(playerId);
+    }
+
+    // 7. Refresh UI tabs
+    this.renderPlayersTab();
+    if (this.currentTab === 'bots') this.renderBotsTab();
+    if (this.currentTab === 'rooms') this.renderRoomsTab();
+    if (this.currentTab === 'map') this.updateMasterMapMarkers();
+
+    UI.showToast(`Kicked ${nickname}`, 'danger');
   }
 
   confirmBanPlayer(roomCode, playerId, nickname) {
@@ -1342,14 +1572,17 @@ class AdminEngine {
     const room = (document.getElementById('admin-bot-room-target')?.value || Game.roomCode || 'TEST').toUpperCase().trim();
     const name = (document.getElementById('admin-bot-name')?.value || 'Bot-' + Math.floor(Math.random() * 1000)).trim();
     const role = document.getElementById('admin-bot-role')?.value || 'runner';
+    const speed = parseFloat(document.getElementById('admin-bot-speed')?.value || '2.8');
+    const movement = document.getElementById('admin-bot-movement')?.value || 'moving';
+    const isMoving = movement !== 'stopped';
 
-    this.pendingBotSpawn = { roomCode: room, nickname: name, role: role };
+    this.pendingBotSpawn = { roomCode: room, nickname: name, role: role, speed: speed, isMoving: isMoving };
     this.switchTab('map');
 
     const banner = document.getElementById('admin-map-spawn-banner');
     const bannerText = document.getElementById('admin-map-spawn-banner-text');
     if (banner && bannerText) {
-      bannerText.textContent = `🎯 Tap map to drop ${role.toUpperCase()} bot "${name}" into Room ${room}`;
+      bannerText.textContent = `🎯 Tap map to drop ${role.toUpperCase()} bot "${name}" (${speed} m/s) into Room ${room}`;
       banner.style.display = 'flex';
     }
 
@@ -1362,16 +1595,49 @@ class AdminEngine {
     if (banner) banner.style.display = 'none';
   }
 
+  /**
+   * Start Interactive Tap-on-Map Waypoint Placement Mode for Bot
+   */
+  selectBotForWaypoint(botId) {
+    this.selectedWaypointBotId = botId;
+    this.isWaypointMode = true;
+    this.switchTab('map');
+
+    const bot = AdminBot.bots.find(b => b.id === botId);
+    const banner = document.getElementById('admin-map-waypoint-banner');
+    const bannerText = document.getElementById('admin-map-waypoint-banner-text');
+    if (banner && bannerText) {
+      bannerText.textContent = `🎯 Tap map to set destination waypoint for "${bot ? bot.nickname : 'Bot'}"`;
+      banner.style.display = 'flex';
+    }
+    UI.showToast(`🎯 Tap anywhere on map to set destination waypoint for ${bot ? bot.nickname : 'Bot'}`, 'info');
+  }
+
+  cancelWaypointMode() {
+    this.selectedWaypointBotId = null;
+    this.isWaypointMode = false;
+    const banner = document.getElementById('admin-map-waypoint-banner');
+    if (banner) banner.style.display = 'none';
+  }
+
   onMasterMapClick(latlng) {
     const coordsDisplay = document.getElementById('admin-map-coords-display');
     if (coordsDisplay) {
       coordsDisplay.textContent = `Lat: ${latlng.lat.toFixed(5)}, Lng: ${latlng.lng.toFixed(5)}`;
     }
 
-    // 1. If in interactive tap-to-drop bot spawn mode:
+    // 1. If in waypoint placement mode:
+    if (this.isWaypointMode && this.selectedWaypointBotId) {
+      AdminBot.setBotDestination(this.selectedWaypointBotId, latlng.lat, latlng.lng);
+      this.cancelWaypointMode();
+      this.updateMasterMapMarkers();
+      return;
+    }
+
+    // 2. If in interactive tap-to-drop bot spawn mode:
     if (this.pendingBotSpawn) {
-      const { roomCode, nickname, role } = this.pendingBotSpawn;
-      const bot = AdminBot.spawn(roomCode, nickname, role, latlng.lat, latlng.lng);
+      const { roomCode, nickname, role, speed, isMoving } = this.pendingBotSpawn;
+      const bot = AdminBot.spawn(roomCode, nickname, role, latlng.lat, latlng.lng, speed, isMoving);
       UI.showToast(`🤖 Bot "${nickname}" injected at ${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`, 'info');
       this.cancelMapTapSpawnMode();
       this.updateMasterMapMarkers();
@@ -1379,7 +1645,7 @@ class AdminEngine {
       return;
     }
 
-    // 2. If bot relocation mode is active:
+    // 3. If bot relocation mode is active:
     if (this.isMapPlacementMode && this.selectedBotId) {
       AdminBot.setBotLocation(this.selectedBotId, latlng.lat, latlng.lng);
       UI.showToast(`📍 Bot moved to ${latlng.lat.toFixed(4)}, ${latlng.lng.toFixed(4)}`, 'info');
@@ -1431,6 +1697,51 @@ class AdminEngine {
       if (room.boundaryCenter && room.boundaryRadiusMeters) {
         this.updateBoundaryLayer(roomCode, room.boundaryCenter.lat, room.boundaryCenter.lng, room.boundaryRadiusMeters);
       }
+    }
+
+    // 3. Draw Bot Waypoint Markers
+    if (typeof AdminBot !== 'undefined') {
+      const activeBotIds = new Set(AdminBot.bots.map(b => b.id));
+      for (const [botId, wMarker] of this.waypointMarkers.entries()) {
+        if (!activeBotIds.has(botId) || !AdminBot.bots.find(b => b.id === botId)?.targetDestination) {
+          if (this.masterMap) this.masterMap.removeLayer(wMarker);
+          this.waypointMarkers.delete(botId);
+        }
+      }
+
+      AdminBot.bots.forEach(bot => {
+        if (selectedRoom !== 'ALL' && bot.roomCode !== selectedRoom) {
+          if (this.waypointMarkers.has(bot.id)) {
+            this.masterMap.removeLayer(this.waypointMarkers.get(bot.id));
+            this.waypointMarkers.delete(bot.id);
+          }
+          return;
+        }
+
+        if (bot.targetDestination) {
+          const wLat = bot.targetDestination.lat;
+          const wLng = bot.targetDestination.lng;
+          let wMarker = this.waypointMarkers.get(bot.id);
+          const wIcon = L.divIcon({
+            className: 'custom-admin-marker',
+            html: `
+              <div style="background:#38bdf8; color:#0f172a; width:26px; height:26px; border-radius:50%; border:2px solid #fff; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:800; box-shadow:0 0 10px rgba(56,189,248,0.8);">
+                🚩
+              </div>
+            `,
+            iconSize: [26, 26],
+            iconAnchor: [13, 13]
+          });
+
+          if (!wMarker) {
+            wMarker = L.marker([wLat, wLng], { icon: wIcon }).addTo(this.masterMap);
+            wMarker.bindPopup(`<div style="font-size:12px; font-weight:700; color:#38bdf8;">🚩 Destination Waypoint for ${bot.nickname}</div>`);
+            this.waypointMarkers.set(bot.id, wMarker);
+          } else {
+            wMarker.setLatLng([wLat, wLng]);
+          }
+        }
+      });
     }
   }
 
@@ -1676,7 +1987,30 @@ class AdminEngine {
     AdminBot.bots.forEach(bot => {
       const isSelected = this.selectedBotId === bot.id;
       const roleBadge = bot.role === 'seeker' ? 'role-badge-seeker' : 'role-badge-runner';
-      const motionLabel = bot.mode === 'patrol' ? '🚶 Patrolling (2.5 m/s)' : '🛑 Static (Hold)';
+      const isMoving = bot.isMoving !== false;
+      const moveBadge = isMoving
+        ? '<span class="admin-tag-pill" style="background:#10b981; color:#fff; font-weight:800;">🟢 MOVING</span>'
+        : '<span class="admin-tag-pill" style="background:#ef4444; color:#fff; font-weight:800;">🛑 STOPPED</span>';
+
+      let destinationText = 'Free Patrol / Roam';
+      if (!isMoving) {
+        destinationText = 'Holding Position (Stationary)';
+      } else if (bot.targetDestination) {
+        destinationText = `🚩 Waypoint: ${bot.targetDestination.lat.toFixed(5)}, ${bot.targetDestination.lng.toFixed(5)}`;
+      } else if (bot.targetPlayerId) {
+        const tp = this.allPlayers.get(bot.targetPlayerId);
+        destinationText = `🎯 Pursuing ${tp ? tp.nickname : bot.targetPlayerId}`;
+      }
+
+      // Populate pursuit options for other players in the room
+      let playerOptions = `<option value="">-- None (Free Patrol) --</option>`;
+      for (const [pId, p] of this.allPlayers.entries()) {
+        if (pId === bot.id) continue;
+        if (p.roomCode === bot.roomCode) {
+          const isTarget = bot.targetPlayerId === pId ? 'selected' : '';
+          playerOptions += `<option value="${pId}" ${isTarget}>${p.nickname} (${p.role.toUpperCase()})</option>`;
+        }
+      }
 
       html += `
         <div class="card admin-bot-card ${isSelected ? 'selected-bot' : ''}" data-bot-id="${bot.id}">
@@ -1684,6 +2018,7 @@ class AdminEngine {
             <div>
               <span class="admin-player-name">${bot.nickname}</span>
               <span class="admin-tag-pill pill-bot">BOT</span>
+              ${moveBadge}
               <span class="admin-badge ${roleBadge}">${bot.role.toUpperCase()}</span>
             </div>
             <div style="font-size:0.8rem; font-weight:700; color:var(--theme-primary);">
@@ -1696,13 +2031,57 @@ class AdminEngine {
             <span class="admin-meta-val" style="font-family:monospace;">${bot.lat.toFixed(5)}, ${bot.lng.toFixed(5)}</span>
           </div>
           <div class="admin-meta-row">
-            <span class="admin-meta-label">Motion Status:</span>
-            <span class="admin-meta-val">${motionLabel}</span>
+            <span class="admin-meta-label">Navigation Target:</span>
+            <span class="admin-meta-val" style="color:#38bdf8; font-weight:600;">${destinationText}</span>
           </div>
 
-          <div class="admin-bot-actions-grid">
-            <button type="button" class="admin-action-btn ${bot.mode === 'patrol' ? 'btn-warning' : 'btn-primary'}" onclick="AdminBot.togglePatrol('${bot.id}')">
-              ${bot.mode === 'patrol' ? '🛑 Freeze' : '🚶 Patrol'}
+          <!-- Speed Customization Section -->
+          <div style="margin-top:10px; padding:8px 10px; background:#0f172a; border-radius:6px; border:1px solid #1e293b;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <span style="font-size:0.75rem; font-weight:700; color:#94a3b8;">⚡ Bot Speed:</span>
+              <span style="font-size:0.8rem; font-weight:800; color:#00f5b4; font-family:monospace;">${bot.speed.toFixed(1)} m/s (${(bot.speed * 3.6).toFixed(1)} km/h)</span>
+            </div>
+            <div style="display:flex; gap:4px; flex-wrap:wrap;">
+              <button type="button" class="admin-action-btn ${Math.abs(bot.speed - 1.4) < 0.2 ? 'btn-primary' : 'btn-ghost'}" style="font-size:0.7rem; padding:4px 8px; flex:1;" onclick="AdminBot.setBotSpeed('${bot.id}', 1.4)">
+                🚶 1.4 Walk
+              </button>
+              <button type="button" class="admin-action-btn ${Math.abs(bot.speed - 2.8) < 0.2 ? 'btn-primary' : 'btn-ghost'}" style="font-size:0.7rem; padding:4px 8px; flex:1;" onclick="AdminBot.setBotSpeed('${bot.id}', 2.8)">
+                🏃 2.8 Jog
+              </button>
+              <button type="button" class="admin-action-btn ${Math.abs(bot.speed - 5.0) < 0.2 ? 'btn-primary' : 'btn-ghost'}" style="font-size:0.7rem; padding:4px 8px; flex:1;" onclick="AdminBot.setBotSpeed('${bot.id}', 5.0)">
+                ⚡ 5.0 Run
+              </button>
+              <button type="button" class="admin-action-btn ${Math.abs(bot.speed - 8.0) < 0.2 ? 'btn-primary' : 'btn-ghost'}" style="font-size:0.7rem; padding:4px 8px; flex:1;" onclick="AdminBot.setBotSpeed('${bot.id}', 8.0)">
+                🚀 8.0 Sprint
+              </button>
+            </div>
+          </div>
+
+          <!-- Where to Go: Waypoint / Pursue Target -->
+          <div style="margin-top:8px; padding:8px 10px; background:#0f172a; border-radius:6px; border:1px solid #1e293b;">
+            <div style="font-size:0.75rem; font-weight:700; color:#94a3b8; margin-bottom:6px;">🎯 Destination & Pursuit Target:</div>
+            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+              <button type="button" class="admin-action-btn btn-secondary" style="font-size:0.72rem; padding:6px 10px; flex:1;" onclick="Admin.selectBotForWaypoint('${bot.id}')" title="Tap location on God's Eye Map">
+                🚩 Set Waypoint on Map
+              </button>
+              ${bot.targetDestination ? `
+                <button type="button" class="admin-action-btn btn-ghost" style="font-size:0.72rem; padding:6px 8px; color:#ff4757;" onclick="AdminBot.clearBotDestination('${bot.id}')" title="Cancel waypoint">
+                  ✕ Clear
+                </button>
+              ` : ''}
+            </div>
+            <div style="display:flex; gap:6px; align-items:center; margin-top:6px;">
+              <span style="font-size:0.72rem; color:#64748b; white-space:nowrap;">Pursue:</span>
+              <select class="tactical-select" style="font-size:0.72rem; padding:4px 6px; flex:1;" onchange="AdminBot.setBotTargetPlayer('${bot.id}', this.value)">
+                ${playerOptions}
+              </select>
+            </div>
+          </div>
+
+          <!-- Movement Toggle & Bot Actions -->
+          <div class="admin-bot-actions-grid" style="margin-top:10px;">
+            <button type="button" class="admin-action-btn ${isMoving ? 'btn-warning' : 'btn-success'}" style="${!isMoving ? 'background:#10b981; color:#fff;' : ''}" onclick="AdminBot.toggleMovement('${bot.id}')">
+              ${isMoving ? '⏸️ Freeze / Stop' : '▶️ Start Moving'}
             </button>
             <button type="button" class="admin-action-btn btn-secondary" onclick="Admin.selectBotForMapPlacement('${bot.id}')">
               📍 Place on Map
@@ -1713,8 +2092,8 @@ class AdminEngine {
             <button type="button" class="admin-action-btn btn-warning" onclick="AdminBot.triggerPing('${bot.id}')">
               📡 Ping Now
             </button>
-            <button type="button" class="admin-action-btn btn-danger" onclick="AdminBot.testOutOfBounds('${bot.id}')">
-              ⚠️ Teleport OOB
+            <button type="button" class="admin-action-btn btn-danger" onclick="Admin.confirmKickPlayer('${bot.roomCode}', '${bot.id}', '${bot.nickname}')">
+              👢 Kick Bot
             </button>
             <button type="button" class="admin-action-btn btn-ghost" style="color:#ff4757;" onclick="AdminBot.despawn('${bot.id}')">
               ❌ Despawn
@@ -1746,10 +2125,14 @@ class AdminEngine {
     const roleSelect = document.getElementById('admin-bot-role');
     const latInput = document.getElementById('admin-bot-lat');
     const lngInput = document.getElementById('admin-bot-lng');
+    const speedSelect = document.getElementById('admin-bot-speed');
+    const movementSelect = document.getElementById('admin-bot-movement');
 
     const roomCode = (roomInput?.value || Game.roomCode || 'TEST').toUpperCase().trim();
     const nickname = (nameInput?.value || 'Bot-' + Math.floor(Math.random() * 1000)).trim();
     const role = roleSelect?.value || 'runner';
+    const speed = parseFloat(speedSelect?.value || '2.8');
+    const isMoving = (movementSelect?.value || 'moving') !== 'stopped';
 
     let lat = parseFloat(latInput?.value);
     let lng = parseFloat(lngInput?.value);
@@ -1776,9 +2159,9 @@ class AdminEngine {
       }
     }
 
-    AdminBot.spawn(roomCode, nickname, role, lat, lng);
+    AdminBot.spawn(roomCode, nickname, role, lat, lng, speed, isMoving);
     this.renderBotsTab();
-    UI.showToast(`Spawned bot ${nickname} into Room ${roomCode}`, 'info');
+    UI.showToast(`Spawned bot ${nickname} (${speed} m/s) into Room ${roomCode}`, 'info');
   }
 
   promptSpawnQuickBot() {
@@ -1854,11 +2237,30 @@ class AdminBotManager {
     this.tickInterval = null;
   }
 
+  static getDistanceMeters(lat1, lng1, lat2, lng2) {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  static getBearing(lat1, lng1, lat2, lng2) {
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const y = Math.sin(dLng) * Math.cos(lat2 * Math.PI / 180);
+    const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+              Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLng);
+    return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+  }
+
   isBotActive(botId) {
     return this.bots.some(b => b.id === botId);
   }
 
-  spawn(roomCode, nickname, role = 'runner', lat = null, lng = null) {
+  spawn(roomCode, nickname, role = 'runner', lat = null, lng = null, speed = 2.8, isMoving = true) {
     const botId = 'bot_' + Math.random().toString(36).substring(2, 8);
     let defaultLat = (typeof lat === 'number' && !isNaN(lat)) ? lat : null;
     let defaultLng = (typeof lng === 'number' && !isNaN(lng)) ? lng : null;
@@ -1889,6 +2291,9 @@ class AdminBotManager {
       defaultLng = 0;
     }
 
+    const botSpeed = typeof speed === 'number' ? Math.max(0.5, speed) : 2.8;
+    const botIsMoving = isMoving !== false;
+
     const bot = {
       id: botId,
       roomCode: (roomCode || 'TEST').toUpperCase(),
@@ -1897,8 +2302,11 @@ class AdminBotManager {
       lat: defaultLat,
       lng: defaultLng,
       heading: Math.floor(Math.random() * 360),
-      speed: 2.5, // 2.5 m/s (~9 km/h jogging speed)
-      mode: 'patrol', // 'patrol' or 'static'
+      speed: botSpeed,
+      isMoving: botIsMoving,
+      mode: botIsMoving ? 'patrol' : 'static',
+      targetDestination: null, // { lat, lng }
+      targetPlayerId: null, // playerId
       pingTimer: 10,
       lastPresenceSend: 0
     };
@@ -1928,16 +2336,53 @@ class AdminBotManager {
     const now = Date.now();
 
     this.bots.forEach(bot => {
-      // 1. Move bot if in patrol mode
-      if (bot.mode === 'patrol') {
-        bot.heading = (bot.heading + (Math.random() * 30 - 15) + 360) % 360;
-        const rad = bot.heading * Math.PI / 180;
-        const distMeters = bot.speed;
-        const deltaLat = (distMeters * Math.cos(rad)) / 111111;
-        const deltaLng = (distMeters * Math.sin(rad)) / (111111 * Math.cos(bot.lat * Math.PI / 180));
+      // 1. Move bot if isMoving is true
+      if (bot.isMoving) {
+        let targetLat = null;
+        let targetLng = null;
 
-        bot.lat += deltaLat;
-        bot.lng += deltaLng;
+        if (bot.targetPlayerId) {
+          const tp = Admin.allPlayers.get(bot.targetPlayerId);
+          if (tp && typeof tp.lat === 'number' && typeof tp.lng === 'number') {
+            targetLat = tp.lat;
+            targetLng = tp.lng;
+          }
+        } else if (bot.targetDestination) {
+          targetLat = bot.targetDestination.lat;
+          targetLng = bot.targetDestination.lng;
+        }
+
+        if (targetLat !== null && targetLng !== null) {
+          const dist = AdminBotManager.getDistanceMeters(bot.lat, bot.lng, targetLat, targetLng);
+          if (dist <= 3.5 && bot.targetDestination) {
+            // Arrived at destination waypoint!
+            bot.lat = targetLat;
+            bot.lng = targetLng;
+            bot.targetDestination = null;
+            bot.isMoving = false;
+            bot.mode = 'static';
+            UI.showToast(`🎯 ${bot.nickname} arrived at destination!`, 'success');
+          } else {
+            // Steer towards target coordinates
+            const bearing = AdminBotManager.getBearing(bot.lat, bot.lng, targetLat, targetLng);
+            bot.heading = bearing;
+            const stepMeters = Math.min(dist, bot.speed);
+            const rad = bearing * Math.PI / 180;
+            const deltaLat = (stepMeters * Math.cos(rad)) / 111111;
+            const deltaLng = (stepMeters * Math.sin(rad)) / (111111 * Math.cos(bot.lat * Math.PI / 180));
+            bot.lat += deltaLat;
+            bot.lng += deltaLng;
+          }
+        } else {
+          // Free roam patrol
+          bot.heading = (bot.heading + (Math.random() * 30 - 15) + 360) % 360;
+          const rad = bot.heading * Math.PI / 180;
+          const distMeters = bot.speed;
+          const deltaLat = (distMeters * Math.cos(rad)) / 111111;
+          const deltaLng = (distMeters * Math.sin(rad)) / (111111 * Math.cos(bot.lat * Math.PI / 180));
+          bot.lat += deltaLat;
+          bot.lng += deltaLng;
+        }
       }
 
       // 2. Transmit periodic presence
@@ -1961,6 +2406,79 @@ class AdminBotManager {
         }
       }
     });
+  }
+
+  setBotSpeed(botId, speed) {
+    const bot = this.bots.find(b => b.id === botId);
+    if (!bot) return;
+    bot.speed = Math.max(0.5, Math.min(30, parseFloat(speed) || 2.8));
+    this.broadcastBotTelemetry(bot, true);
+    UI.showToast(`Speed for ${bot.nickname} set to ${bot.speed.toFixed(1)} m/s`, 'info');
+    Admin.renderBotsTab();
+  }
+
+  toggleMovement(botId) {
+    const bot = this.bots.find(b => b.id === botId);
+    if (!bot) return;
+    bot.isMoving = !bot.isMoving;
+    bot.mode = bot.isMoving ? (bot.targetDestination ? 'waypoint' : (bot.targetPlayerId ? 'pursuit' : 'patrol')) : 'static';
+    this.broadcastBotTelemetry(bot, true);
+    UI.showToast(`Bot ${bot.nickname} is now ${bot.isMoving ? 'MOVING' : 'FROZEN / STOPPED'}`, 'info');
+    Admin.renderBotsTab();
+  }
+
+  setMovement(botId, isMoving) {
+    const bot = this.bots.find(b => b.id === botId);
+    if (!bot) return;
+    bot.isMoving = !!isMoving;
+    bot.mode = bot.isMoving ? (bot.targetDestination ? 'waypoint' : (bot.targetPlayerId ? 'pursuit' : 'patrol')) : 'static';
+    this.broadcastBotTelemetry(bot, true);
+    UI.showToast(`Bot ${bot.nickname} movement set to ${bot.isMoving ? 'MOVING' : 'STOPPED'}`, 'info');
+    Admin.renderBotsTab();
+  }
+
+  setBotDestination(botId, lat, lng) {
+    const bot = this.bots.find(b => b.id === botId);
+    if (!bot) return;
+    bot.targetDestination = { lat: parseFloat(lat), lng: parseFloat(lng) };
+    bot.targetPlayerId = null;
+    bot.isMoving = true;
+    bot.mode = 'waypoint';
+    this.broadcastBotTelemetry(bot, true);
+    UI.showToast(`🎯 Destination waypoint set for ${bot.nickname}`, 'info');
+    Admin.renderBotsTab();
+    if (Admin.masterMap) {
+      Admin.updateMasterMapMarkers();
+    }
+  }
+
+  clearBotDestination(botId) {
+    const bot = this.bots.find(b => b.id === botId);
+    if (!bot) return;
+    bot.targetDestination = null;
+    bot.mode = bot.isMoving ? 'patrol' : 'static';
+    UI.showToast(`Cleared destination for ${bot.nickname}`, 'info');
+    Admin.renderBotsTab();
+    if (Admin.masterMap) {
+      Admin.updateMasterMapMarkers();
+    }
+  }
+
+  setBotTargetPlayer(botId, targetPlayerId) {
+    const bot = this.bots.find(b => b.id === botId);
+    if (!bot) return;
+    bot.targetPlayerId = targetPlayerId ? targetPlayerId : null;
+    bot.targetDestination = null;
+    if (bot.targetPlayerId) {
+      bot.isMoving = true;
+      bot.mode = 'pursuit';
+      const targetP = Admin.allPlayers.get(bot.targetPlayerId);
+      UI.showToast(`🎯 ${bot.nickname} is now pursuing ${targetP ? targetP.nickname : 'target'}!`, 'info');
+    } else {
+      bot.mode = bot.isMoving ? 'patrol' : 'static';
+      UI.showToast(`${bot.nickname} resumed free patrol`, 'info');
+    }
+    Admin.renderBotsTab();
   }
 
   broadcastBotPresence(bot) {
@@ -1995,7 +2513,7 @@ class AdminBotManager {
         role: bot.role,
         lat: bot.lat,
         lng: bot.lng,
-        speed: bot.speed,
+        speed: bot.isMoving ? bot.speed : 0,
         heading: bot.heading,
         isLiveRunnerBroadcast: isLiveRunnerBroadcast,
         isPingSnapshot: isPingSnapshot || isInitial,
@@ -2063,10 +2581,7 @@ class AdminBotManager {
   }
 
   togglePatrol(botId) {
-    const bot = this.bots.find(b => b.id === botId);
-    if (!bot) return;
-    bot.mode = bot.mode === 'patrol' ? 'static' : 'patrol';
-    UI.showToast(`Bot ${bot.nickname} is now ${bot.mode.toUpperCase()}`, 'info');
+    this.toggleMovement(botId);
   }
 
   swapRole(botId) {
@@ -2113,7 +2628,43 @@ class AdminBotManager {
     this.bots.splice(idx, 1);
     Admin.allPlayers.delete(botId);
     Admin.removeMapMarker(botId);
+
+    // Remove waypoint marker if any
+    if (Admin.waypointMarkers && Admin.waypointMarkers.has(botId)) {
+      if (Admin.masterMap) {
+        Admin.masterMap.removeLayer(Admin.waypointMarkers.get(botId));
+      }
+      Admin.waypointMarkers.delete(botId);
+    }
+
+    // Remove from room players
+    for (const r of Admin.rooms.values()) {
+      if (r.players && r.players.has(botId)) {
+        r.players.delete(botId);
+        r.playerCount = r.players.size;
+      }
+    }
+
+    // Remove from Network peers & Game rosters
+    if (typeof Network !== 'undefined' && Network.peers) {
+      Network.peers.delete(botId);
+    }
+    if (typeof Game !== 'undefined') {
+      if (Game.activeRunners) Game.activeRunners.delete(botId);
+      if (Game.activeSeekers) Game.activeSeekers.delete(botId);
+      if (Game.updatePlayerRoster) Game.updatePlayerRoster();
+    }
+    if (typeof MapController !== 'undefined' && MapController.removePeer) {
+      MapController.removePeer(botId);
+    }
+
     UI.showToast(`Despawned ${bot.nickname}`, 'info');
+  }
+
+  despawnAllForRoom(roomCode) {
+    const target = (roomCode || '').toUpperCase().trim();
+    const toRemove = this.bots.filter(b => b.roomCode === target);
+    toRemove.forEach(b => this.despawn(b.id));
   }
 
   despawnAll() {
