@@ -16,6 +16,9 @@ const DEFAULT_CONFIG = {
   requireTagConfirmation: true,   // true (runner confirms on mobile) or false (instant tag)
   proximityAlertMeters: 100,      // Proximity alarm triggers within meters (0 = off, 25, 50, 75, 100, 150, 200)
   proximityAlertInterval: 10,     // Beep interval in seconds when seeker is near
+  hunterProximityAlertMeters: 75, // Hunter proximity alarm triggers within meters (0 = off, 25, 50, 75, 100)
+  hunterProximityAlertInterval: 10, // Hunter alert cooldown in seconds (battery optimized)
+  dynamicNearDistanceMeters: 100, // Distance threshold triggering near real-time 1s polling
   boundaryRadiusMeters: 1500,     // Play boundary (0 = off, 250, 500, 1000, 1500, 2000, 3000, 5000)
   flareCooldownSeconds: 60,       // Cooldown duration between manual runner flares (prevents notification spam)
 

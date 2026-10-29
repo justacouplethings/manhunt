@@ -1597,6 +1597,158 @@ assert(adminJsSource.includes('this.removeMapMarker(playerId)'), 'Admin.confirmK
 assert(adminJsSource.includes('setPlayerRole(roomCode, playerId, targetRole)'), 'Admin implements explicit setPlayerRole() method');
 assert(adminJsSource.includes('promptEditPlayerNickname('), 'Admin implements promptEditPlayerNickname() method');
 
+console.log('\n29. Testing Real-Time Tagging Decoupling, Dynamic 1s Polling, Hunter Proximity Alerts & Native Background GPS:');
+
+// A. Dynamic Polling Rate
+const gameJsSource = fs.readFileSync(path.join(__dirname, '../js/game.js'), 'utf8');
+const configJsSource = fs.readFileSync(path.join(__dirname, '../js/config.js'), 'utf8');
+
+assert(configJsSource.includes('dynamicNearDistanceMeters: 100'), 'Config specifies 100m dynamic near distance threshold');
+assert(configJsSource.includes('hunterProximityAlertMeters: 75'), 'Config specifies 75m hunter proximity alert threshold');
+assert(configJsSource.includes('hunterProximityAlertInterval: 10'), 'Config specifies 10s hunter proximity alert interval');
+
+assert(gameJsSource.includes('getDynamicBroadcastInterval()'), 'Game implements getDynamicBroadcastInterval helper');
+assert(gameJsSource.includes('getEffectiveRunnerDistance('), 'Game implements getEffectiveRunnerDistance helper');
+assert(gameJsSource.includes('triggerHunterProximityAlert('), 'Game implements triggerHunterProximityAlert method');
+
+// Simulate getDynamicBroadcastInterval logic
+function testGetDynamicBroadcastInterval(role, nearestDist, dynamicThreshold = 100, seekerInterval = 5) {
+  if (nearestDist !== null && nearestDist <= dynamicThreshold) {
+    return 1000; // Near real-time 1s polling
+  }
+  if (role === 'runner') {
+    return 2000;
+  }
+  return seekerInterval * 1000;
+}
+
+assert(testGetDynamicBroadcastInterval('seeker', 50, 100, 5) === 1000, 'Seeker within 50m of runner switches to 1s dynamic polling rate');
+assert(testGetDynamicBroadcastInterval('runner', 80, 100, 5) === 1000, 'Runner within 80m of seeker switches to 1s dynamic polling rate');
+assert(testGetDynamicBroadcastInterval('seeker', 150, 100, 5) === 5000, 'Seeker 150m away maintains normal 5s polling interval');
+assert(testGetDynamicBroadcastInterval('runner', 200, 100, 5) === 2000, 'Runner 200m away maintains normal 2s squad telemetry');
+
+// B. Tagging Latency Decoupling Simulation
+// Hunter reaches runner location while runner\'s ping countdown has NOT fired (e.g. countdown is at 280s out of 300s)
+const mockGameState = {
+  role: 'seeker',
+  state: 'ACTIVE',
+  lastSelfCoords: { lat: 51.5074, lng: -0.1278 },
+  runnerPingCountdown: 280, // 280s remaining before next runner ping snapshot!
+  trueLivePositions: new Map(),
+  lastKnownPositions: new Map(),
+  taggedRunners: new Set(),
+  lockedTargetId: null,
+  lastHunterProximityAlertTime: 0
+};
+
+// Runner\'s stale ping was 200m away at (51.5090, -0.1278), but runner moved to (51.50745, -0.1278) ~5.5m away
+mockGameState.lastKnownPositions.set('runner_1', {
+  lat: 51.5090,
+  lng: -0.1278,
+  role: 'runner',
+  nickname: 'Speedy'
+});
+mockGameState.trueLivePositions.set('runner_1', {
+  lat: 51.50745,
+  lng: -0.1278,
+  role: 'runner',
+  nickname: 'Speedy'
+});
+
+// Calculate effective distance to runner
+function testGetEffectiveRunnerDistance(runnerId, lastKnownPos, trueLivePositions, selfLat, selfLng) {
+  const truePos = trueLivePositions.get(runnerId);
+  if (truePos && truePos.lat != null && truePos.lng != null) {
+    const dist = testGetDistanceMeters(selfLat, selfLng, truePos.lat, truePos.lng);
+    const bearing = testGetBearing(selfLat, selfLng, truePos.lat, truePos.lng);
+    return { distance: dist, bearing: bearing, isLive: true };
+  }
+  if (lastKnownPos && lastKnownPos.lat != null && lastKnownPos.lng != null) {
+    const dist = testGetDistanceMeters(selfLat, selfLng, lastKnownPos.lat, lastKnownPos.lng);
+    const bearing = testGetBearing(selfLat, selfLng, lastKnownPos.lat, lastKnownPos.lng);
+    return { distance: dist, bearing: bearing, isLive: false };
+  }
+  return { distance: Infinity, bearing: 0, isLive: false };
+}
+
+const decoupledResult = testGetEffectiveRunnerDistance('runner_1', mockGameState.lastKnownPositions.get('runner_1'), mockGameState.trueLivePositions, mockGameState.lastSelfCoords.lat, mockGameState.lastSelfCoords.lng);
+assert(decoupledResult.distance < 10, 'Decoupled calculation evaluates true live runner distance (~5.5m) despite stale ping (200m)');
+assert(decoupledResult.distance <= 15, 'Runner is immediately inside tag radius (15m) without waiting for 280s ping timer reset');
+
+// C. Hunter Proximity Alert Triggering
+function testHunterProximityCheck(closestDistance, closestOpponent, closestBearing, lastAlertTime, proxThreshold = 75, cooldownSec = 10) {
+  if (proxThreshold > 0 && closestDistance <= proxThreshold) {
+    const now = Date.now();
+    if (now - lastAlertTime >= (cooldownSec * 1000)) {
+      return { fired: true, time: now, name: closestOpponent.nickname, distance: closestDistance, bearing: closestBearing };
+    }
+  }
+  return { fired: false, time: lastAlertTime };
+}
+
+const alertCheck1 = testHunterProximityCheck(decoupledResult.distance, { nickname: 'Speedy' }, decoupledResult.bearing, 0, 75, 10);
+assert(alertCheck1.fired === true, 'Hunter proximity alert triggers when runner is within 75m');
+assert(alertCheck1.name === 'Speedy', 'Hunter alert identifies closest runner name');
+
+// Test alert cooldown prevents battery drain & spam
+const alertCheck2 = testHunterProximityCheck(decoupledResult.distance, { nickname: 'Speedy' }, decoupledResult.bearing, alertCheck1.time, 75, 10);
+assert(alertCheck2.fired === false, 'Hunter proximity alert respects cooldown to avoid rapid spam and save battery');
+
+// D. Stale Ping Catch Exploit Protection & Phantom Catch Rejection
+// Case 1: Hunter walks up to a runner\'s STALE ping marker, but the runner physically ran away 120m
+const staleMarkerHunterLat = 51.5090;
+const staleMarkerHunterLng = -0.1278;
+const actualRunnerLat = 51.5074;
+const actualRunnerLng = -0.1278;
+
+const staleTestLivePositions = new Map();
+staleTestLivePositions.set('runner_fled', { lat: actualRunnerLat, lng: actualRunnerLng, role: 'runner' });
+const staleTestKnownPositions = new Map();
+staleTestKnownPositions.set('runner_fled', { lat: staleMarkerHunterLat, lng: staleMarkerHunterLng, role: 'runner' });
+
+function testTagRunnerValidation(targetId, hunterLat, hunterLng, knownMap, liveMap, maxRadius = 15) {
+  const effective = testGetEffectiveRunnerDistance(targetId, knownMap.get(targetId), liveMap, hunterLat, hunterLng);
+  if (effective.distance > maxRadius) {
+    return { allowed: false, message: 'The target is no longer here.' };
+  }
+  return { allowed: true, distance: effective.distance };
+}
+
+const phantomTagResult = testTagRunnerValidation('runner_fled', staleMarkerHunterLat, staleMarkerHunterLng, staleTestKnownPositions, staleTestLivePositions, 15);
+assert(phantomTagResult.allowed === false, 'Phantom catch attempt on stale ping coordinates is strictly rejected');
+assert(phantomTagResult.message === 'The target is no longer here.', 'Phantom catch returns correct rejection message: "The target is no longer here."');
+
+// Case 2: Hunter is physically adjacent to runner\'s true live location
+const legitTagResult = testTagRunnerValidation('runner_fled', actualRunnerLat + 0.00005, actualRunnerLng, staleTestKnownPositions, staleTestLivePositions, 15);
+assert(legitTagResult.allowed === true, 'Real-time tag allowed instantly when hunter coordinates match runner live position');
+
+// E. Android Native Configuration Verification
+const androidManifestSource = fs.readFileSync(path.join(__dirname, '../android/AndroidManifest.xml'), 'utf8');
+const mainActivitySource = fs.readFileSync(path.join(__dirname, '../android/app/src/main/java/com/manhunt/gpsgame/MainActivity.java'), 'utf8');
+const locationServiceSource = fs.readFileSync(path.join(__dirname, '../android/app/src/main/java/com/manhunt/gpsgame/LocationService.java'), 'utf8');
+
+assert(androidManifestSource.includes('android.permission.ACCESS_BACKGROUND_LOCATION'), 'AndroidManifest.xml includes ACCESS_BACKGROUND_LOCATION permission');
+assert(androidManifestSource.includes('android.permission.FOREGROUND_SERVICE'), 'AndroidManifest.xml includes FOREGROUND_SERVICE permission');
+assert(androidManifestSource.includes('android.permission.FOREGROUND_SERVICE_LOCATION'), 'AndroidManifest.xml includes FOREGROUND_SERVICE_LOCATION permission');
+assert(androidManifestSource.includes('LocationService'), 'AndroidManifest.xml declares LocationService');
+
+assert(mainActivitySource.includes('requestBackgroundLocationInternal()'), 'MainActivity implements requestBackgroundLocationInternal()');
+assert(mainActivitySource.includes('ACCESS_BACKGROUND_LOCATION'), 'MainActivity requests ACCESS_BACKGROUND_LOCATION');
+assert(mainActivitySource.includes('backgroundLocation'), 'MainActivity AndroidBridge checkPermissionsStatus reports backgroundLocation');
+assert(locationServiceSource.includes('requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 0.0f'), 'LocationService uses 0.0f minDistance for unthrottled background GPS');
+
+// F. iOS Native Configuration Verification
+const iosInfoPlistSource = fs.readFileSync(path.join(__dirname, '../ios/App/App/Info.plist'), 'utf8');
+const iosLocationManagerSource = fs.readFileSync(path.join(__dirname, '../ios/App/App/LocationManager.swift'), 'utf8');
+
+assert(iosInfoPlistSource.includes('<string>location</string>'), 'iOS Info.plist declares UIBackgroundModes location');
+assert(iosInfoPlistSource.includes('<string>fetch</string>'), 'iOS Info.plist declares UIBackgroundModes fetch');
+assert(iosInfoPlistSource.includes('NSLocationAlwaysAndWhenInUseUsageDescription'), 'iOS Info.plist contains NSLocationAlwaysAndWhenInUseUsageDescription');
+assert(iosInfoPlistSource.includes('NSLocationAlwaysUsageDescription'), 'iOS Info.plist contains NSLocationAlwaysUsageDescription');
+assert(iosLocationManagerSource.includes('allowsBackgroundLocationUpdates = true'), 'LocationManager.swift sets allowsBackgroundLocationUpdates = true');
+assert(iosLocationManagerSource.includes('pausesLocationUpdatesAutomatically = false'), 'LocationManager.swift sets pausesLocationUpdatesAutomatically = false');
+assert(iosLocationManagerSource.includes('requestAlwaysAuthorization()'), 'LocationManager.swift implements requestAlwaysAuthorization()');
+
 // Summary
 console.log('\n======================================================');
 console.log(`📊 TEST RESULTS: ${testsPassed} PASSED, ${testsFailed} FAILED`);

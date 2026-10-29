@@ -21,6 +21,7 @@ import android.provider.Settings;
 public class MainActivity extends Activity {
     private WebView webView;
     private static final int PERMISSION_REQUEST_CODE = 1001;
+    private static final int BACKGROUND_LOCATION_REQUEST_CODE = 1002;
     private static MainActivity instance;
 
     public static MainActivity getInstance() {
@@ -141,6 +142,34 @@ public class MainActivity extends Activity {
             }
             if (!perms.isEmpty()) {
                 requestPermissions(perms.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+            } else {
+                requestBackgroundLocationInternal();
+            }
+        }
+    }
+
+    public void requestBackgroundLocationInternal() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (checkSelfPermission("android.permission.ACCESS_FINE_LOCATION") == PackageManager.PERMISSION_GRANTED &&
+                checkSelfPermission("android.permission.ACCESS_BACKGROUND_LOCATION") != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{"android.permission.ACCESS_BACKGROUND_LOCATION"}, BACKGROUND_LOCATION_REQUEST_CODE);
+            }
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            boolean fineLocationGranted = false;
+            for (int i = 0; i < permissions.length; i++) {
+                if ("android.permission.ACCESS_FINE_LOCATION".equals(permissions[i]) && grantResults[i] == PackageManager.PERMISSION_GRANTED) {
+                    fineLocationGranted = true;
+                    break;
+                }
+            }
+            if (fineLocationGranted) {
+                requestBackgroundLocationInternal();
             }
         }
     }
@@ -195,6 +224,16 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void requestBackgroundLocation() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    requestBackgroundLocationInternal();
+                }
+            });
+        }
+
+        @JavascriptInterface
         public boolean isBatteryOptimizationIgnored() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
@@ -238,12 +277,16 @@ public class MainActivity extends Activity {
             } else {
                 hasLocation = true;
             }
+            boolean hasBackgroundLocation = true;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                hasBackgroundLocation = checkSelfPermission("android.permission.ACCESS_BACKGROUND_LOCATION") == PackageManager.PERMISSION_GRANTED;
+            }
             boolean batteryExempt = isBatteryOptimizationIgnored();
             boolean hasNotifications = true;
             if (Build.VERSION.SDK_INT >= 33) {
                 hasNotifications = checkSelfPermission("android.permission.POST_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED;
             }
-            return String.format("{\"location\":%b,\"battery\":%b,\"notifications\":%b}", hasLocation, batteryExempt, hasNotifications);
+            return String.format("{\"location\":%b,\"backgroundLocation\":%b,\"battery\":%b,\"notifications\":%b}", hasLocation, hasBackgroundLocation, batteryExempt, hasNotifications);
         }
 
         @JavascriptInterface

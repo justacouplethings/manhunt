@@ -42,6 +42,7 @@ class ManhuntGame {
 
     // Audio & sensory state
     this.lastProximityAlertTime = 0;
+    this.lastHunterProximityAlertTime = 0;
     this.nearestOpponentDistance = null;
     this.nearestOpponentBearing = null;
     this.nearestOpponentName = '';
@@ -80,6 +81,8 @@ class ManhuntGame {
     this.lastRunnerLiveSend = 0;
     this.lastRunnerPingTime = 0;
     this.lastFlareTimestamp = 0;
+    this.lastProximityAlertTime = 0;
+    this.lastHunterProximityAlertTime = 0;
     this.nearestOpponentDistance = null;
     this.nearestOpponentBearing = null;
     this.nearestOpponentName = '';
@@ -651,7 +654,8 @@ class ManhuntGame {
     // 4. Seeker Tracking (Live vs Periodic Ping)
     if (this.role === 'seeker' && this.lastSelfCoords) {
       if (Config.settings.seekerTrackingMode === 'live') {
-        if (Date.now() - (this.lastSeekerSend || 0) >= (Config.settings.seekerPingInterval * 1000)) {
+        const seekerInterval = this.getDynamicBroadcastInterval();
+        if (Date.now() - (this.lastSeekerSend || 0) >= seekerInterval) {
           this.lastSeekerSend = Date.now();
           Network.broadcast('telemetry', {
             lat: this.lastSelfCoords.lat,
@@ -685,6 +689,133 @@ class ManhuntGame {
 
     // 5. Evaluate distances & Proximity Alert
     this.evaluateDistances();
+  }
+
+  /**
+   * Dynamic polling rate: increases to near real-time (1000ms) when hunter and runner are within close range (<=100m)
+   */
+  getDynamicBroadcastInterval() {
+    const nearThreshold = Config.settings.dynamicNearDistanceMeters || 100;
+    if (this.nearestOpponentDistance !== null && this.nearestOpponentDistance <= nearThreshold) {
+      return 1000; // Near real-time 1s polling
+    }
+    if (this.role === 'runner') {
+      return 2000; // Standard squad live telemetry
+    }
+    return (Config.settings.seekerPingInterval || 5) * 1000;
+  }
+
+  /**
+   * Decoupled runner distance & trajectory calculation
+   * Uses real-time silent telemetry, projected dead-reckoning trajectory vector, or last ping
+   */
+  getEffectiveRunnerDistance(runnerId, lastKnownPos, selfLat, selfLng) {
+    if (selfLat == null || selfLng == null) {
+      return { distance: Infinity, bearing: 0, isLive: false, source: 'none' };
+    }
+
+    // 1. Silent real-time live telemetry check
+    const truePos = this.trueLivePositions.get(runnerId);
+    if (truePos && truePos.lat != null && truePos.lng != null) {
+      const dist = GeoEngine.getDistance(selfLat, selfLng, truePos.lat, truePos.lng);
+      const bearing = GeoEngine.getBearing(selfLat, selfLng, truePos.lat, truePos.lng);
+      return {
+        distance: dist,
+        bearing: bearing,
+        lat: truePos.lat,
+        lng: truePos.lng,
+        isLive: true,
+        source: 'true_live'
+      };
+    }
+
+    // 2. Trajectory projection / dead-reckoning from last known position
+    if (lastKnownPos && lastKnownPos.lat != null && lastKnownPos.lng != null) {
+      const now = Date.now();
+      const speed = Number(lastKnownPos.speed) || 0;
+      const heading = lastKnownPos.heading != null ? Number(lastKnownPos.heading) : null;
+      const dt = lastKnownPos.timestamp ? (now - lastKnownPos.timestamp) / 1000 : 0;
+
+      // Project if moving and ping was within the last 45 seconds
+      if (speed > 0.5 && heading !== null && dt > 0 && dt <= 45) {
+        const rad = (heading * Math.PI) / 180;
+        const distTraveled = speed * dt;
+        const dLat = (distTraveled * Math.cos(rad)) / 111111;
+        const dLng = (distTraveled * Math.sin(rad)) / (111111 * Math.cos((lastKnownPos.lat * Math.PI) / 180));
+        const projLat = lastKnownPos.lat + dLat;
+        const projLng = lastKnownPos.lng + dLng;
+
+        const projDist = GeoEngine.getDistance(selfLat, selfLng, projLat, projLng);
+        const lastDist = GeoEngine.getDistance(selfLat, selfLng, lastKnownPos.lat, lastKnownPos.lng);
+
+        const effectiveDist = Math.min(projDist, lastDist);
+        const effectiveBearing = GeoEngine.getBearing(selfLat, selfLng, effectiveDist === projDist ? projLat : lastKnownPos.lat, effectiveDist === projDist ? projLng : lastKnownPos.lng);
+
+        return {
+          distance: effectiveDist,
+          bearing: effectiveBearing,
+          lat: effectiveDist === projDist ? projLat : lastKnownPos.lat,
+          lng: effectiveDist === projDist ? projLng : lastKnownPos.lng,
+          isLive: false,
+          projected: true,
+          source: 'projected_trajectory'
+        };
+      }
+
+      const dist = GeoEngine.getDistance(selfLat, selfLng, lastKnownPos.lat, lastKnownPos.lng);
+      const bearing = GeoEngine.getBearing(selfLat, selfLng, lastKnownPos.lat, lastKnownPos.lng);
+      return {
+        distance: dist,
+        bearing: bearing,
+        lat: lastKnownPos.lat,
+        lng: lastKnownPos.lng,
+        isLive: false,
+        source: 'last_known'
+      };
+    }
+
+    return { distance: Infinity, bearing: 0, isLive: false, source: 'none' };
+  }
+
+  /**
+   * Hunter Proximity Alert: local push notification, haptic vibration, and audio cue
+   * Optimized with cooldown to prevent excessive battery drain
+   */
+  triggerHunterProximityAlert(runnerName, distance, bearing) {
+    this.lastHunterProximityAlertTime = Date.now();
+    const cardinal = GeoEngine.getCardinalDirection(bearing);
+    const distRounded = Math.round(distance);
+
+    // 1. Haptic feedback / vibration pattern for hunter
+    UI.vibrate([150, 80, 150, 80, 250]);
+
+    // 2. Audio warning cue
+    UI.playAudioCue('warning');
+
+    // 3. UI In-App Alert banner
+    UI.notifyCriticalEvent(
+      'RUNNER IN RANGE',
+      `⚡ Runner nearby: ${runnerName} (${distRounded}m, ${cardinal})`,
+      'warning'
+    );
+
+    // 4. Native Android / system notification if app is in background
+    if (window.AndroidNative && typeof window.AndroidNative.showNotification === 'function') {
+      try {
+        window.AndroidNative.showNotification(
+          'RUNNER IN RANGE',
+          `Runner ${runnerName} is ${distRounded}m away (${cardinal})!`
+        );
+      } catch (e) {}
+    } else if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      try {
+        new Notification('Manhunt - Runner Nearby', {
+          body: `${runnerName} is ${distRounded}m away (${cardinal})!`,
+          icon: 'assets/icon-192.png',
+          tag: 'hunter-proximity'
+        });
+      } catch (e) {}
+    }
   }
 
   /**
@@ -762,10 +893,11 @@ class ManhuntGame {
       }
     }
 
-    // 1. Continuous Live Telemetry for Runners (Other runners track squad teammates live in real-time)
+    // 1. Continuous Live Telemetry for Runners (Other runners track squad teammates live; dynamic 1s polling when near seekers)
     if (this.role === 'runner' && (this.state === 'ACTIVE' || this.state === 'GRACE_PERIOD') && !this.isTagged) {
       const now = Date.now();
-      if (now - (this.lastRunnerLiveSend || 0) >= 2000) {
+      const broadcastInterval = this.getDynamicBroadcastInterval();
+      if (now - (this.lastRunnerLiveSend || 0) >= broadcastInterval) {
         this.lastRunnerLiveSend = now;
         Network.broadcast('telemetry', {
           lat: coords.lat,
@@ -784,7 +916,8 @@ class ManhuntGame {
     // 2. Seeker Continuous Live Telemetry (when configured for live mode)
     if (this.role === 'seeker' && this.state === 'ACTIVE' && Config.settings.seekerTrackingMode === 'live') {
       const now = Date.now();
-      if (now - (this.lastSeekerSend || 0) >= (Config.settings.seekerPingInterval * 1000)) {
+      const broadcastInterval = this.getDynamicBroadcastInterval();
+      if (now - (this.lastSeekerSend || 0) >= broadcastInterval) {
         this.lastSeekerSend = now;
         Network.broadcast('telemetry', {
           lat: coords.lat,
@@ -1062,23 +1195,66 @@ class ManhuntGame {
     const isSeeker = this.role === 'seeker';
     const runnerTargets = [];
 
-    for (const [id, pos] of this.lastKnownPositions.entries()) {
-      if (isSeeker) {
-        // Seekers look for active, untagged Runners
-        if (pos.role === 'runner' && !this.taggedRunners.has(id)) {
-          const dist = GeoEngine.getDistance(selfLat, selfLng, pos.lat, pos.lng);
-          const bearing = GeoEngine.getBearing(selfLat, selfLng, pos.lat, pos.lng);
-          const targetObj = { id, nickname: pos.nickname || 'Runner', distance: dist, bearing: bearing };
+    if (isSeeker) {
+      // Seekers look for active, untagged Runners across all tracked players (decoupled from ping interval)
+      const candidateIds = new Set([...this.lastKnownPositions.keys(), ...this.trueLivePositions.keys()]);
+      for (const id of candidateIds) {
+        if (this.taggedRunners.has(id)) continue;
+        const lastKnown = this.lastKnownPositions.get(id);
+        const truePos = this.trueLivePositions.get(id);
+        const role = (truePos && truePos.role) || (lastKnown && lastKnown.role);
+        if (role !== 'runner') continue;
+
+        const nickname = (truePos && truePos.nickname) || (lastKnown && lastKnown.nickname) || 'Runner';
+        const effective = this.getEffectiveRunnerDistance(id, lastKnown, selfLat, selfLng);
+
+        if (effective.distance !== Infinity) {
+          const targetObj = {
+            id,
+            nickname: nickname,
+            distance: effective.distance,
+            bearing: effective.bearing,
+            isLive: effective.isLive,
+            source: effective.source
+          };
           runnerTargets.push(targetObj);
 
           if (this.lockedTargetId === id) {
             closestOpponent = targetObj;
-            closestDistance = dist;
-            closestBearing = bearing;
+            closestDistance = effective.distance;
+            closestBearing = effective.bearing;
           }
         }
-      } else {
-        // Runners watch for Seekers
+      }
+
+      runnerTargets.sort((a, b) => a.distance - b.distance);
+
+      if (!closestOpponent && runnerTargets.length > 0) {
+        closestOpponent = runnerTargets[0];
+        closestDistance = closestOpponent.distance;
+        closestBearing = closestOpponent.bearing;
+      }
+
+      // Check Tag Range for Seeker using customized setting (instant decoupled check)
+      const tagRange = Config.settings.tagDistanceMeters || 15;
+      if (closestOpponent && closestOpponent.distance <= tagRange) {
+        tagCandidate = closestOpponent;
+      }
+
+      UI.renderTargetList(runnerTargets, this.lockedTargetId);
+
+      // Hunter Proximity Warning Alarm
+      const hunterProxLimit = Config.settings.hunterProximityAlertMeters || 75;
+      if (hunterProxLimit > 0 && closestDistance <= hunterProxLimit) {
+        const now = Date.now();
+        const cooldownMs = (Config.settings.hunterProximityAlertInterval || 10) * 1000;
+        if (now - this.lastHunterProximityAlertTime >= cooldownMs) {
+          this.triggerHunterProximityAlert(closestOpponent.nickname, closestDistance, closestBearing);
+        }
+      }
+    } else {
+      // Runners watch for Seekers
+      for (const [id, pos] of this.lastKnownPositions.entries()) {
         if (pos.role === 'seeker') {
           const dist = GeoEngine.getDistance(selfLat, selfLng, pos.lat, pos.lng);
           if (dist < closestDistance) {
@@ -1088,24 +1264,16 @@ class ManhuntGame {
           }
         }
       }
-    }
 
-    if (isSeeker) {
-      runnerTargets.sort((a, b) => a.distance - b.distance);
-
-      if (!closestOpponent && runnerTargets.length > 0) {
-        closestOpponent = runnerTargets[0];
-        closestDistance = closestOpponent.distance;
-        closestBearing = closestOpponent.bearing;
+      // Runner Proximity Warning Alarm
+      const proxLimit = Config.settings.proximityAlertMeters;
+      if (proxLimit > 0 && closestDistance <= proxLimit) {
+        const now = Date.now();
+        if (now - this.lastProximityAlertTime >= (Config.settings.proximityAlertInterval * 1000)) {
+          this.lastProximityAlertTime = now;
+          UI.triggerProximityAlert(closestDistance, GeoEngine.getCardinalDirection(closestBearing));
+        }
       }
-
-      // Check Tag Range for Seeker using customized setting
-      const tagRange = Config.settings.tagDistanceMeters || 15;
-      if (closestOpponent && closestOpponent.distance <= tagRange) {
-        tagCandidate = closestOpponent;
-      }
-
-      UI.renderTargetList(runnerTargets, this.lockedTargetId);
     }
 
     this.nearestOpponentDistance = closestDistance !== Infinity ? closestDistance : null;
@@ -1118,32 +1286,22 @@ class ManhuntGame {
     if (isSeeker) {
       UI.updateTagButtonState(tagCandidate);
     }
-
-    // Runner Proximity Warning Alarm
-    const proxLimit = Config.settings.proximityAlertMeters;
-    if (!isSeeker && proxLimit > 0 && closestDistance <= proxLimit) {
-      const now = Date.now();
-      if (now - this.lastProximityAlertTime >= (Config.settings.proximityAlertInterval * 1000)) {
-        this.lastProximityAlertTime = now;
-        UI.triggerProximityAlert(closestDistance, GeoEngine.getCardinalDirection(closestBearing));
-      }
-    }
   }
 
   /**
    * Seeker initiates tag
    */
   tagRunner(targetPlayerId, runnerNickname) {
-    if (this.role !== 'seeker') return;
+    if (this.role !== 'seeker') return false;
 
     if (this.taggedRunners.has(targetPlayerId)) {
       UI.showToast(`${runnerNickname} has already been caught!`, 'info');
-      return;
+      return false;
     }
 
     const now = Date.now();
     if (now - this.lastTagAttemptTime < 1500) {
-      return; // Debounce rapid tag clicks
+      return false; // Debounce rapid tag clicks
     }
     this.lastTagAttemptTime = now;
 
@@ -1152,18 +1310,15 @@ class ManhuntGame {
     const selfLng = this.lastSelfCoords ? this.lastSelfCoords.lng : null;
     if (selfLat == null || selfLng == null) {
       UI.showToast('GPS position unavailable', 'warning');
-      return;
+      return false;
     }
 
     const maxCatchRadius = Config.settings.tagDistanceMeters || 15;
+    const lastPos = this.lastKnownPositions.get(targetPlayerId);
 
-    // Retrieve target runner's TRUE live position and displayed ping position
-    const truePos = this.trueLivePositions.get(targetPlayerId);
-
-    let trueDistance = Infinity;
-    if (truePos && truePos.lat != null && truePos.lng != null) {
-      trueDistance = GeoEngine.getDistance(selfLat, selfLng, truePos.lat, truePos.lng);
-    }
+    // Decoupled real-time runner distance check
+    const effective = this.getEffectiveRunnerDistance(targetPlayerId, lastPos, selfLat, selfLng);
+    const trueDistance = effective.distance;
 
     // Stale Ping Catch Exploit Protection:
     // If seeker attempts to catch near a stale ping marker, but the runner's TRUE live location
@@ -1171,7 +1326,7 @@ class ManhuntGame {
     if (trueDistance > maxCatchRadius) {
       UI.showToast('The target is no longer here.', 'warning');
       UI.playAudioCue('radar-blip');
-      return;
+      return false;
     }
 
     const tagDistance = Math.round(trueDistance);
@@ -1194,6 +1349,7 @@ class ManhuntGame {
       Network.broadcast('tag_confirmed', tagData, true);
       this.onRemoteTagConfirmed(tagData);
     }
+    return true;
   }
 
   /**

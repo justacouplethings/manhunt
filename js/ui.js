@@ -119,7 +119,7 @@ class UIManager {
         if (gpsItem && gpsBtn && status.location) {
           gpsItem.classList.add('granted');
           gpsBtn.classList.add('granted-badge');
-          gpsBtn.textContent = 'GRANTED';
+          gpsBtn.textContent = status.backgroundLocation ? 'ALWAYS GRANTED' : 'GRANTED';
         }
 
         const battItem = document.getElementById('readiness-item-battery');
@@ -1267,8 +1267,15 @@ class UIManager {
     const grantGpsBtn = document.getElementById('btn-grant-gps');
     if (grantGpsBtn) {
       grantGpsBtn.onclick = () => {
-        if (window.AndroidNative && window.AndroidNative.requestLocationPermissions) {
-          window.AndroidNative.requestLocationPermissions();
+        if (window.AndroidNative) {
+          if (window.AndroidNative.requestLocationPermissions) {
+            window.AndroidNative.requestLocationPermissions();
+          }
+          if (window.AndroidNative.requestBackgroundLocation) {
+            setTimeout(() => {
+              window.AndroidNative.requestBackgroundLocation();
+            }, 600);
+          }
         }
         Geo.startTracking();
         setTimeout(() => this.refreshReadinessBadges(), 1200);
