@@ -37,6 +37,9 @@ class FirebaseAuthManager {
   }
 
   init() {
+    // 1. Instantly load any persisted session from localStorage for zero-latency header rendering
+    this.loadLocalProfile();
+
     try {
       if (typeof firebase !== 'undefined' && firebase.initializeApp) {
         if (!firebase.apps || !firebase.apps.length) {
@@ -46,23 +49,52 @@ class FirebaseAuthManager {
         this.db = firebase.firestore();
         this.isInitialized = true;
 
-        // Listen for auth state changes
-        this.auth.onAuthStateChanged(async (user) => {
-          if (user) {
-            await this.loadUserProfile(user);
-          } else {
-            this.currentUser = null;
-            this.updateAuthUI();
-          }
-        });
+        // Ensure persistence uses localStorage
+        if (this.auth.setPersistence && firebase.auth.Auth && firebase.auth.Auth.Persistence) {
+          this.auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e => {
+            console.warn('Firebase setPersistence to LOCAL note:', e.message);
+          });
+        }
+
+        // Setup onAuthStateChanged listener to automatically detect existing session on page load
+        this.setupAuthStateListener();
       } else {
         console.info('Firebase SDK not loaded from CDN; using local profile persistence fallback.');
-        this.loadLocalProfile();
       }
     } catch (e) {
       console.warn('Firebase initialization note (running in local/offline fallback):', e.message);
-      this.loadLocalProfile();
     }
+  }
+
+  setupAuthStateListener() {
+    if (!this.auth) return;
+
+    this.auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        // User has an existing active session with Firebase Auth
+        // Automatically bypass auth modal
+        if (typeof UI !== 'undefined' && UI.closeModal) {
+          UI.closeModal('modal-auth');
+        }
+        // Fetch their profile data (username, avatar color) from Firestore
+        await this.loadUserProfile(user);
+        // Render logged-in header instantly
+        this.updateAuthUI();
+      } else {
+        // If not authenticated via Firebase remote, check if we have an active offline profile
+        const stored = localStorage.getItem('manhunt_user_profile');
+        if (stored) {
+          try {
+            this.currentUser = JSON.parse(stored);
+          } catch (e) {
+            this.currentUser = null;
+          }
+        } else {
+          this.currentUser = null;
+        }
+        this.updateAuthUI();
+      }
+    });
   }
 
   loadLocalProfile() {
@@ -206,9 +238,10 @@ class FirebaseAuthManager {
 
   /**
    * Generates a circular HTML avatar with background color and first letter of username
+   * Bold White initial clearly visible against chosen color with drop shadow
    */
-  renderAvatarHtml(username, color, size = 38) {
-    const letter = (username || 'P').charAt(0).toUpperCase();
+  renderAvatarHtml(username, color, size = 36) {
+    const letter = ((username || 'P').trim().charAt(0) || 'P').toUpperCase();
     const bg = color || '#00f5b4';
     return `
       <div class="user-colored-avatar" style="
@@ -218,15 +251,19 @@ class FirebaseAuthManager {
         min-height: ${size}px;
         border-radius: 50%;
         background-color: ${bg};
-        color: #07090e;
+        color: #FFFFFF !important;
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        font-family: var(--font-family, sans-serif);
         font-weight: 900;
         font-size: ${Math.round(size * 0.48)}px;
+        line-height: 1;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 2px #000000;
         box-shadow: 0 0 10px ${bg}88;
-        border: 2px solid rgba(255, 255, 255, 0.4);
+        border: 2px solid rgba(255, 255, 255, 0.9);
         user-select: none;
+        flex-shrink: 0;
       ">${letter}</div>
     `;
   }
@@ -234,28 +271,28 @@ class FirebaseAuthManager {
   updateAuthUI() {
     const profileWidget = document.getElementById('lobby-auth-profile-widget');
     const authBtn = document.getElementById('btn-open-auth-modal');
-    const nicknameInput = document.getElementById('player-nickname');
+    const nicknameInput = document.getElementById('input-nickname') || document.getElementById('player-nickname');
 
     if (this.currentUser) {
       if (nicknameInput) {
         nicknameInput.value = this.currentUser.username;
-        if (typeof Game !== 'undefined') Game.nickname = this.currentUser.username;
-        if (typeof Network !== 'undefined') {
-          Network.nickname = this.currentUser.username;
-          Network.avatarColor = this.currentUser.avatarColor;
-        }
       }
+      if (typeof Game !== 'undefined') Game.nickname = this.currentUser.username;
+      if (typeof Network !== 'undefined') {
+        Network.nickname = this.currentUser.username;
+        Network.avatarColor = this.currentUser.avatarColor;
+      }
+
       if (profileWidget) {
         profileWidget.style.display = 'flex';
         profileWidget.innerHTML = `
-          <div style="display:flex; align-items:center; gap:8px;">
-            ${this.renderAvatarHtml(this.currentUser.username, this.currentUser.avatarColor, 36)}
-            <div style="text-align:left;">
-              <div style="font-weight:800; font-size:0.85rem; color:#fff;">${this.currentUser.username}</div>
-              <div style="font-size:0.7rem; color:var(--theme-text-muted);">${this.currentUser.email || 'Verified Operative'}</div>
+          <div class="lobby-user-badge">
+            ${this.renderAvatarHtml(this.currentUser.username, this.currentUser.avatarColor, 34)}
+            <div class="lobby-user-info">
+              <span class="lobby-user-name">${this.currentUser.username}</span>
             </div>
+            <button type="button" id="btn-user-logout" class="lobby-logout-btn" title="Sign Out" onclick="AuthManager.signOut()">LOGOUT</button>
           </div>
-          <button type="button" id="btn-user-logout" class="text-btn" style="color:#ff6b81; font-size:0.8rem; padding:4px 8px;" onclick="AuthManager.signOut()">Log Out</button>
         `;
       }
       if (authBtn) authBtn.style.display = 'none';

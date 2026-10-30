@@ -65,9 +65,7 @@ class UIManager {
       localStorage.setItem('manhunt_device_platform_v2', 'android');
       const onboarded = localStorage.getItem('manhunt_onboarded_v2');
       if (!onboarded) {
-        setTimeout(() => {
-          this.showModal('modal-onboarding');
-        }, 150);
+        this.showModal('modal-onboarding');
       }
       this.refreshReadinessBadges();
       if (window.AndroidNative && window.AndroidNative.requestLocationPermissions) {
@@ -78,17 +76,13 @@ class UIManager {
 
     // Only for web visitors on desktop/Safari who haven't selected their device yet
     if (!localStorage.getItem('manhunt_device_platform_v2')) {
-      setTimeout(() => {
-        this.openPlatformModal();
-      }, 400);
+      this.openPlatformModal();
       return;
     }
 
     const onboarded = localStorage.getItem('manhunt_onboarded_v2');
     if (!onboarded) {
-      setTimeout(() => {
-        this.showModal('modal-onboarding');
-      }, 500);
+      this.showModal('modal-onboarding');
     }
     this.refreshReadinessBadges();
   }
@@ -323,8 +317,8 @@ class UIManager {
     container.appendChild(toast);
     setTimeout(() => {
       toast.classList.add('fade-out');
-      setTimeout(() => toast.remove(), 400);
-    }, 3200);
+      setTimeout(() => toast.remove(), 120);
+    }, 2200);
   }
 
   /**
@@ -1258,8 +1252,36 @@ class UIManager {
     }
 
     // ========================================================================
-    // FIREBASE AUTHENTICATION & PROFILE MODAL LISTENERS
+    // FIREBASE AUTHENTICATION & PROFILE MODAL LISTENERS (PERSISTENT SESSION)
     // ========================================================================
+    if (typeof firebase !== 'undefined' && firebase.auth) {
+      try {
+        if (firebase.auth().setPersistence && firebase.auth.Auth && firebase.auth.Auth.Persistence) {
+          firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
+        }
+        firebase.auth().onAuthStateChanged(async (user) => {
+          if (user) {
+            this.closeModal('modal-auth');
+            if (typeof AuthManager !== 'undefined') {
+              await AuthManager.loadUserProfile(user);
+              AuthManager.updateAuthUI();
+            }
+          } else if (typeof AuthManager !== 'undefined') {
+            AuthManager.updateAuthUI();
+          }
+        });
+      } catch (e) {
+        console.warn('UI auth listener note:', e.message);
+      }
+    }
+
+    if (typeof AuthManager !== 'undefined') {
+      AuthManager.updateAuthUI();
+      if (AuthManager.currentUser) {
+        this.closeModal('modal-auth');
+      }
+    }
+
     const openAuthBtn = document.getElementById('btn-open-auth-modal');
     if (openAuthBtn) {
       openAuthBtn.onclick = () => this.showModal('modal-auth');
@@ -1799,7 +1821,7 @@ class UIManager {
     if (errorEl) errorEl.style.display = 'none';
     if (inputEl) {
       inputEl.value = '';
-      setTimeout(() => inputEl.focus(), 200);
+      inputEl.focus();
     }
     this.showModal('modal-admin-auth');
   }
