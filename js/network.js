@@ -11,6 +11,7 @@ class NetworkEngine {
     this.playerId = 'p_' + Math.random().toString(36).substring(2, 9);
     this.nickname = 'Player';
     this.role = 'runner'; // 'runner' or 'seeker'
+    this.avatarColor = (typeof AuthManager !== 'undefined' && AuthManager.currentUser && AuthManager.currentUser.avatarColor) || '#00f5b4';
     this.isHost = false;
     this.isConnected = false;
     this.handlers = {};
@@ -225,6 +226,7 @@ class NetworkEngine {
         id: this.playerId,
         nickname: this.nickname,
         role: this.role,
+        avatarColor: (typeof AuthManager !== 'undefined' && AuthManager.currentUser && AuthManager.currentUser.avatarColor) || this.avatarColor || '#00f5b4',
         isHost: true,
         lat: selfCoords ? selfCoords.lat : null,
         lng: selfCoords ? selfCoords.lng : null,
@@ -245,6 +247,7 @@ class NetworkEngine {
           id: p.id,
           nickname: p.nickname,
           role: p.role,
+          avatarColor: p.avatarColor || '#00f5b4',
           isHost: false,
           isTagged: !!p.isTagged,
           lat: pLat,
@@ -303,10 +306,12 @@ class NetworkEngine {
   sendPresence() {
     const selfCoords = (typeof Game !== 'undefined' && Game.lastSelfCoords) ||
                        (typeof Geo !== 'undefined' && Geo.currentPosition) || null;
+    const currentAvatarColor = (typeof AuthManager !== 'undefined' && AuthManager.currentUser && AuthManager.currentUser.avatarColor) || this.avatarColor || '#00f5b4';
     this.broadcast('presence', {
       playerId: this.playerId,
       nickname: this.nickname,
       role: this.role,
+      avatarColor: currentAvatarColor,
       isHost: this.isHost,
       lat: selfCoords ? selfCoords.lat : null,
       lng: selfCoords ? selfCoords.lng : null,
@@ -373,7 +378,7 @@ class NetworkEngine {
     sendSingle();
 
     // Critical actions retransmit with short delays to eliminate mobile cellular packet loss
-    const criticalActions = ['start_game', 'match_over', 'game_over', 'host_command', 'admin_command', 'role_assigned', 'tag_request', 'tag_confirmed', 'tag_disputed', 'settings_sync', 'join_request'];
+    const criticalActions = ['start_game', 'match_over', 'game_over', 'host_command', 'admin_command', 'role_assigned', 'tag_request', 'tag_confirmed', 'tag_disputed', 'settings_sync', 'join_request', 'perk_activated'];
     if (isCritical || criticalActions.includes(action)) {
       setTimeout(sendSingle, 150);
       setTimeout(sendSingle, 350);
@@ -406,6 +411,7 @@ class NetworkEngine {
         id: senderId,
         nickname: data.nickname || existing.nickname || 'Unknown',
         role: data.role || existing.role || 'runner',
+        avatarColor: data.avatarColor || existing.avatarColor || '#00f5b4',
         isHost: !!data.isHost,
         lastSeen: Date.now(),
         isTagged: !!data.isTagged
@@ -551,6 +557,10 @@ class NetworkEngine {
       this.emit('settings_synced', data);
     } else if (action === 'chat') {
       this.emit('chat_message', data);
+    } else if (action === 'perk_activated') {
+      this.emit('perk_activated', data);
+    } else {
+      this.emit(action, data);
     }
   }
 

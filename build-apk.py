@@ -107,7 +107,6 @@ def build_apk():
 
         web_files = [
             ("manifest.json", "assets/manifest.json"),
-            ("privacy-policy.html", "assets/privacy-policy.html"),
             ("service-worker.js", "assets/service-worker.js")
         ]
         for src, dest in web_files:

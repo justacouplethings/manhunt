@@ -53,6 +53,22 @@ class ManhuntGame {
     this.isOutOfBounds = false;
     this.lastFlareTimestamp = 0;
     this.lastRunnerLiveSend = 0;
+
+    // Static dropped pings & flares (Strict Static Compass/Distance Tracking)
+    this.staticDroppedPings = new Map(); // id -> { id, nickname, lat, lng, type: 'ping'|'flare', timestamp }
+
+    // Perks Engine State
+    this.currentPerk = null;
+    this.isPerkUsed = false;
+    this.isPerkActive = false;
+    this.perkRemainingSeconds = 0;
+    this.isSeekerBlinded = false;
+    this.seekerBlindRemaining = 0;
+    this.isRunnerFrozen = false;
+    this.runnerFreezeRemaining = 0;
+    this.isGhostActive = false;
+    this.isOracleActive = false;
+    this.oracleRemaining = 0;
   }
 
   /**
@@ -95,6 +111,18 @@ class ManhuntGame {
     this.initialRunners.clear();
     this.activeSeekers.clear();
     this.lastGameOverData = null;
+    this.staticDroppedPings.clear();
+    this.currentPerk = null;
+    this.isPerkUsed = false;
+    this.isPerkActive = false;
+    this.perkRemainingSeconds = 0;
+    this.isSeekerBlinded = false;
+    this.seekerBlindRemaining = 0;
+    this.isRunnerFrozen = false;
+    this.runnerFreezeRemaining = 0;
+    this.isGhostActive = false;
+    this.isOracleActive = false;
+    this.oracleRemaining = 0;
 
     // Clear network peers
     if (typeof Network !== 'undefined' && Network.peers) {
@@ -204,6 +232,10 @@ class ManhuntGame {
       UI.populateSettingsUI();
       UI.updateLobbyRulesDisplay(newSettings);
       UI.showToast('Host updated match settings', 'info');
+    });
+
+    Network.on('perk_activated', (data) => {
+      this.onRemotePerkActivated(data);
     });
   }
 
@@ -530,6 +562,18 @@ class ManhuntGame {
     this.activeSeekers.clear();
     this.initialRunners.clear();
     this.lastGameOverData = null;
+    this.staticDroppedPings.clear();
+    this.currentPerk = null;
+    this.isPerkUsed = false;
+    this.isPerkActive = false;
+    this.perkRemainingSeconds = 0;
+    this.isSeekerBlinded = false;
+    this.seekerBlindRemaining = 0;
+    this.isRunnerFrozen = false;
+    this.runnerFreezeRemaining = 0;
+    this.isGhostActive = false;
+    this.isOracleActive = false;
+    this.oracleRemaining = 0;
 
     if (this.role === 'runner') {
       this.activeRunners.add(Network.playerId);
@@ -564,6 +608,7 @@ class ManhuntGame {
     UI.showScreen('screen-hud');
     UI.updateHostButtons(this.isHost);
     UI.adaptHUDForRole(this.role);
+    this.assignRolePerk();
     UI.requestWakeLock();
     MapController.invalidate();
     setTimeout(() => {
@@ -640,6 +685,45 @@ class ManhuntGame {
       }
     }
 
+    // Perks & Special Effect State Timers
+    if (this.isPerkActive && this.perkRemainingSeconds > 0) {
+      this.perkRemainingSeconds--;
+      if (this.perkRemainingSeconds <= 0) {
+        this.isPerkActive = false;
+        UI.updatePerkHUD(this.currentPerk, 'DEPLETED');
+      } else {
+        UI.updatePerkHUD(this.currentPerk, `ACTIVE (${this.perkRemainingSeconds}s)`);
+      }
+    }
+
+    if (this.isSeekerBlinded && this.seekerBlindRemaining > 0) {
+      this.seekerBlindRemaining--;
+      UI.updateFrozenOverlay(this.seekerBlindRemaining);
+      if (this.seekerBlindRemaining <= 0) {
+        this.isSeekerBlinded = false;
+        UI.showFrozenOverlay(false);
+        UI.showToast('Seeker radar vision restored', 'info');
+      }
+    }
+
+    if (this.isRunnerFrozen && this.runnerFreezeRemaining > 0) {
+      this.runnerFreezeRemaining--;
+      UI.updateFrozenOverlay(this.runnerFreezeRemaining);
+      if (this.runnerFreezeRemaining <= 0) {
+        this.isRunnerFrozen = false;
+        UI.showFrozenOverlay(false);
+        UI.showToast('Defrosted! Run!', 'info');
+      }
+    }
+
+    if (this.isOracleActive && this.oracleRemaining > 0) {
+      this.oracleRemaining--;
+      if (this.oracleRemaining <= 0) {
+        this.isOracleActive = false;
+        UI.showToast('Oracle Live Tracker has expired', 'info');
+      }
+    }
+
     // 3. Runner Ping Countdown
     this.runnerPingCountdown--;
     UI.updatePingCountdown(this.runnerPingCountdown, Config.settings.runnerPingInterval, this.role);
@@ -647,12 +731,18 @@ class ManhuntGame {
     if (this.runnerPingCountdown <= 0) {
       this.runnerPingCountdown = Config.settings.runnerPingInterval;
       if (this.role === 'runner' && !this.isTagged && this.lastSelfCoords) {
-        this.broadcastRunnerPing(this.lastSelfCoords);
+        if (this.isGhostActive) {
+          this.isGhostActive = false;
+          UI.showToast('👻 Ghost Cloak concealed your GPS location from Seekers!', 'info');
+          UI.updatePerkHUD(this.currentPerk, 'DEPLETED');
+        } else {
+          this.broadcastRunnerPing(this.lastSelfCoords);
+        }
       }
     }
 
-    // 4. Seeker Tracking (Live vs Periodic Ping)
-    if (this.role === 'seeker' && this.lastSelfCoords) {
+    // 4. Seeker Tracking (Live vs Periodic Ping) - Disabled if Seeker is Blinded by Freeze Tagger
+    if (this.role === 'seeker' && this.lastSelfCoords && !this.isSeekerBlinded) {
       if (Config.settings.seekerTrackingMode === 'live') {
         const seekerInterval = this.getDynamicBroadcastInterval();
         if (Date.now() - (this.lastSeekerSend || 0) >= seekerInterval) {
@@ -822,7 +912,16 @@ class ManhuntGame {
    * Broadcast a Runner ping snapshot to all players
    */
   broadcastRunnerPing(coords, isManualFlare = false) {
+    if (this.isGhostActive && !isManualFlare) {
+      this.isGhostActive = false;
+      UI.showToast('👻 Ghost Cloak concealed your GPS location from Seekers!', 'info');
+      UI.updatePerkHUD(this.currentPerk, 'DEPLETED');
+      return;
+    }
+
     this.lastRunnerPingTime = Date.now();
+    this.recordStaticPing(Network.playerId, coords.lat, coords.lng, this.nickname, isManualFlare ? 'flare' : 'ping');
+
     Network.broadcast('telemetry', {
       lat: coords.lat,
       lng: coords.lng,
@@ -839,6 +938,40 @@ class ManhuntGame {
       UI.showToast('📍 Flare fired! Position revealed to Seekers.', 'warning');
       MapController.triggerFlareAnimation(coords.lat, coords.lng, this.nickname || 'You');
     }
+  }
+
+  /**
+   * Unified Main Ping Action Button
+   */
+  triggerPingButton() {
+    if (this.role === 'runner') {
+      this.triggerFlare();
+    } else if (this.role === 'seeker') {
+      if (this.isSeekerBlinded) {
+        UI.showToast('❄️ Radar systems are blinded by Freeze Tagger!', 'warning');
+        return;
+      }
+      this.broadcastSeekerPulse();
+    }
+  }
+
+  broadcastSeekerPulse() {
+    if (!this.lastSelfCoords) {
+      UI.showToast('Acquiring GPS fix for radar pulse...', 'warning');
+      return;
+    }
+    this.recordStaticPing(Network.playerId, this.lastSelfCoords.lat, this.lastSelfCoords.lng, this.nickname, 'ping');
+    Network.broadcast('telemetry', {
+      lat: this.lastSelfCoords.lat,
+      lng: this.lastSelfCoords.lng,
+      role: 'seeker',
+      isPingSnapshot: true,
+      nickname: this.nickname,
+      timestamp: Date.now()
+    });
+    UI.playAudioCue('ping');
+    UI.showToast('📍 Seeker Radar Pulse emitted', 'info');
+    MapController.triggerFlareAnimation(this.lastSelfCoords.lat, this.lastSelfCoords.lng, this.nickname || 'Seeker');
   }
 
   /**
@@ -871,6 +1004,12 @@ class ManhuntGame {
   processLocationTick(coords) {
     this.lastSelfCoords = coords;
     if (this.isPaused) return;
+
+    // Runner Frozen by Seeker Global Freeze perk
+    if (this.isRunnerFrozen && this.role === 'runner') {
+      // GPS updates paused to prevent fleeing
+      return;
+    }
 
     // Out of Bounds Detection against Host's fixed global boundaryCenter
     if (this.boundaryCenter && this.boundaryRadiusMeters > 0 && (this.state === 'ACTIVE' || this.state === 'GRACE_PERIOD')) {
@@ -953,6 +1092,10 @@ class ManhuntGame {
     }
 
     if (role === 'runner') {
+      if (isPingSnapshot || isReconSweep || data.isManualFlare) {
+        this.recordStaticPing(playerId, lat, lng, nickname || 'Runner', data.isManualFlare ? 'flare' : 'ping');
+      }
+
       if (this.role === 'runner') {
         // RUNNER PERSPECTIVE:
         // Runners see their own location and the locations of ALL other runners in real-time (live tracking)!
@@ -967,7 +1110,19 @@ class ManhuntGame {
         }
       } else if (this.role === 'seeker') {
         // SEEKER PERSPECTIVE:
-        // Seekers ONLY receive location updates for runners strictly based on the host's ping interval, flares, or recon sweeps!
+        // 1. Blinded by Freeze Tagger: Radar suppressed
+        if (this.isSeekerBlinded) {
+          return;
+        }
+
+        // 2. Oracle Active: Bypasses ping interval and streams exact live GPS
+        if (this.isOracleActive) {
+          this.lastKnownPositions.set(playerId, { lat, lng, role, timestamp: Date.now(), nickname });
+          MapController.updatePeerLocation(playerId, lat, lng, 'runner', nickname || 'Runner', false);
+          return;
+        }
+
+        // 3. Standard Seeker: updates only on pings/flares/recon
         if (isPingSnapshot || isReconSweep || data.isManualFlare) {
           this.lastKnownPositions.set(playerId, { lat, lng, role, timestamp: Date.now(), nickname });
           MapController.updatePeerLocation(playerId, lat, lng, 'runner', nickname || 'Runner', true);
@@ -1181,111 +1336,314 @@ class ManhuntGame {
 
   /**
    * Calculate distances to opponents, evaluate proximity alarms, locked targets, and tag ranges
+   * Strict Rule: Players must NEVER see the live distance or directional arrow to runners in real-time.
+   * Distance metric and directional compass arrow (▲) ONLY point to and calculate distance of a static dropped Ping or Flare.
    */
   evaluateDistances() {
     if (!this.lastSelfCoords || this.state !== 'ACTIVE') return;
 
     const selfLat = this.lastSelfCoords.lat;
     const selfLng = this.lastSelfCoords.lng;
-    let closestDistance = Infinity;
-    let closestBearing = 0;
-    let closestOpponent = null;
     let tagCandidate = null;
 
     const isSeeker = this.role === 'seeker';
     const runnerTargets = [];
 
     if (isSeeker) {
-      // Seekers look for active, untagged Runners across all tracked players (decoupled from ping interval)
-      const candidateIds = new Set([...this.lastKnownPositions.keys(), ...this.trueLivePositions.keys()]);
+      // Seekers look for active, untagged Runners across all tracked players
+      const candidateIds = new Set([...this.lastKnownPositions.keys(), ...this.trueLivePositions.keys(), ...this.staticDroppedPings.keys()]);
       for (const id of candidateIds) {
         if (this.taggedRunners.has(id)) continue;
         const lastKnown = this.lastKnownPositions.get(id);
         const truePos = this.trueLivePositions.get(id);
         const role = (truePos && truePos.role) || (lastKnown && lastKnown.role);
-        if (role !== 'runner') continue;
+        if (role && role !== 'runner') continue;
 
-        const nickname = (truePos && truePos.nickname) || (lastKnown && lastKnown.nickname) || 'Runner';
+        const nickname = (truePos && truePos.nickname) || (lastKnown && lastKnown.nickname) || (this.staticDroppedPings.get(id)?.nickname) || 'Runner';
         const effective = this.getEffectiveRunnerDistance(id, lastKnown, selfLat, selfLng);
 
-        if (effective.distance !== Infinity) {
-          const targetObj = {
-            id,
-            nickname: nickname,
-            distance: effective.distance,
-            bearing: effective.bearing,
-            isLive: effective.isLive,
-            source: effective.source
-          };
-          runnerTargets.push(targetObj);
+        // Instant decoupled background check for physical tag range
+        const tagRange = Config.settings.tagDistanceMeters || 15;
+        if (effective.distance <= tagRange && (!tagCandidate || effective.distance < tagCandidate.distance)) {
+          tagCandidate = { id, nickname, distance: effective.distance };
+        }
 
-          if (this.lockedTargetId === id) {
-            closestOpponent = targetObj;
-            closestDistance = effective.distance;
-            closestBearing = effective.bearing;
+        // Static dropped ping info for target selector (never live coords)
+        const staticPing = this.staticDroppedPings.get(id);
+        const pingDist = staticPing ? GeoEngine.getDistance(selfLat, selfLng, staticPing.lat, staticPing.lng) : Infinity;
+        const pingBearing = staticPing ? GeoEngine.getBearing(selfLat, selfLng, staticPing.lat, staticPing.lng) : 0;
+
+        runnerTargets.push({
+          id,
+          nickname,
+          distance: pingDist,
+          bearing: pingBearing,
+          hasPing: !!staticPing
+        });
+
+        // Silent Hunter Proximity Warning Alarm (haptic/sound in background without exposing directional arrow)
+        const hunterProxLimit = Config.settings.hunterProximityAlertMeters || 75;
+        if (hunterProxLimit > 0 && effective.distance <= hunterProxLimit) {
+          const now = Date.now();
+          const cooldownMs = (Config.settings.hunterProximityAlertInterval || 10) * 1000;
+          if (now - this.lastHunterProximityAlertTime >= cooldownMs) {
+            this.triggerHunterProximityAlert(nickname, effective.distance, effective.bearing);
           }
         }
       }
 
       runnerTargets.sort((a, b) => a.distance - b.distance);
-
-      if (!closestOpponent && runnerTargets.length > 0) {
-        closestOpponent = runnerTargets[0];
-        closestDistance = closestOpponent.distance;
-        closestBearing = closestOpponent.bearing;
-      }
-
-      // Check Tag Range for Seeker using customized setting (instant decoupled check)
-      const tagRange = Config.settings.tagDistanceMeters || 15;
-      if (closestOpponent && closestOpponent.distance <= tagRange) {
-        tagCandidate = closestOpponent;
-      }
-
       UI.renderTargetList(runnerTargets, this.lockedTargetId);
-
-      // Hunter Proximity Warning Alarm
-      const hunterProxLimit = Config.settings.hunterProximityAlertMeters || 75;
-      if (hunterProxLimit > 0 && closestDistance <= hunterProxLimit) {
-        const now = Date.now();
-        const cooldownMs = (Config.settings.hunterProximityAlertInterval || 10) * 1000;
-        if (now - this.lastHunterProximityAlertTime >= cooldownMs) {
-          this.triggerHunterProximityAlert(closestOpponent.nickname, closestDistance, closestBearing);
-        }
-      }
     } else {
       // Runners watch for Seekers
+      let closestSeekerDist = Infinity;
+      let closestSeekerBearing = 0;
       for (const [id, pos] of this.lastKnownPositions.entries()) {
         if (pos.role === 'seeker') {
           const dist = GeoEngine.getDistance(selfLat, selfLng, pos.lat, pos.lng);
-          if (dist < closestDistance) {
-            closestDistance = dist;
-            closestBearing = GeoEngine.getBearing(selfLat, selfLng, pos.lat, pos.lng);
-            closestOpponent = { id, nickname: pos.nickname || 'Seeker', distance: dist, bearing: closestBearing };
+          if (dist < closestSeekerDist) {
+            closestSeekerDist = dist;
+            closestSeekerBearing = GeoEngine.getBearing(selfLat, selfLng, pos.lat, pos.lng);
           }
         }
       }
 
-      // Runner Proximity Warning Alarm
+      // Runner Proximity Warning Alarm (hardware alert)
       const proxLimit = Config.settings.proximityAlertMeters;
-      if (proxLimit > 0 && closestDistance <= proxLimit) {
+      if (proxLimit > 0 && closestSeekerDist <= proxLimit) {
         const now = Date.now();
         if (now - this.lastProximityAlertTime >= (Config.settings.proximityAlertInterval * 1000)) {
           this.lastProximityAlertTime = now;
-          UI.triggerProximityAlert(closestDistance, GeoEngine.getCardinalDirection(closestBearing));
+          UI.triggerProximityAlert(closestSeekerDist, GeoEngine.getCardinalDirection(closestSeekerBearing));
         }
       }
     }
 
-    this.nearestOpponentDistance = closestDistance !== Infinity ? closestDistance : null;
-    this.nearestOpponentBearing = closestBearing;
+    // STRICT STATIC COMPASS & DISTANCE LOGIC:
+    // Distance metric and directional compass arrow (▲) ONLY point to and calculate distance of a static dropped Ping or Flare.
+    let staticTarget = null;
+    let staticDist = Infinity;
+    let staticBearing = 0;
 
-    // Update Proximity HUD
-    UI.updateProximityHUD(closestDistance !== Infinity ? closestDistance : null, closestBearing, closestOpponent, this.lockedTargetId !== null);
+    if (this.staticDroppedPings && this.staticDroppedPings.size > 0) {
+      if (this.lockedTargetId && this.staticDroppedPings.has(this.lockedTargetId)) {
+        const ping = this.staticDroppedPings.get(this.lockedTargetId);
+        staticDist = GeoEngine.getDistance(selfLat, selfLng, ping.lat, ping.lng);
+        staticBearing = GeoEngine.getBearing(selfLat, selfLng, ping.lat, ping.lng);
+        staticTarget = { ...ping, distance: staticDist, bearing: staticBearing };
+      } else {
+        for (const [pId, ping] of this.staticDroppedPings.entries()) {
+          if (this.taggedRunners.has(pId)) continue;
+          const d = GeoEngine.getDistance(selfLat, selfLng, ping.lat, ping.lng);
+          if (d < staticDist) {
+            staticDist = d;
+            staticBearing = GeoEngine.getBearing(selfLat, selfLng, ping.lat, ping.lng);
+            staticTarget = { ...ping, distance: d, bearing: staticBearing };
+          }
+        }
+      }
+    }
+
+    this.nearestOpponentDistance = staticDist !== Infinity ? staticDist : null;
+    this.nearestOpponentBearing = staticBearing;
+
+    // Update Proximity HUD strictly using STATIC ping / flare
+    UI.updateProximityHUD(
+      staticDist !== Infinity ? staticDist : null,
+      staticBearing,
+      staticTarget,
+      this.lockedTargetId !== null
+    );
 
     // Seeker Tag Action Button trigger
     if (isSeeker) {
       UI.updateTagButtonState(tagCandidate);
     }
+  }
+
+  /**
+   * 1. The Perks System (Randomized & Role-Based)
+   */
+  assignRolePerk() {
+    const runnerPerks = [
+      {
+        id: 'freeze_tagger',
+        name: 'Freeze Tagger',
+        icon: '❄️',
+        desc: 'Freezes Seeker radars & vision for 30s',
+        duration: 30
+      },
+      {
+        id: 'ghost_gps',
+        name: 'Ghost Cloak',
+        icon: '👻',
+        desc: 'Conceals your GPS during next global ping',
+        duration: 0
+      }
+    ];
+
+    const seekerPerks = [
+      {
+        id: 'global_freeze',
+        name: 'Global Freeze',
+        icon: '🧊',
+        desc: 'Freezes all Runners and pauses their GPS',
+        duration: 25
+      },
+      {
+        id: 'oracle',
+        name: 'Live Tracker (Oracle)',
+        icon: '👁️',
+        desc: 'Streams exact live GPS coordinates of all runners for 15s',
+        duration: 15
+      }
+    ];
+
+    const pool = this.role === 'seeker' ? seekerPerks : runnerPerks;
+    const perk = pool[Math.floor(Math.random() * pool.length)];
+    this.currentPerk = perk;
+    this.isPerkUsed = false;
+    this.isPerkActive = false;
+    this.perkRemainingSeconds = 0;
+
+    UI.updatePerkHUD(this.currentPerk, 'READY');
+    UI.showToast(`Tactical Perk Assigned: ${perk.name} (${perk.icon})`, 'info');
+  }
+
+  usePerk() {
+    if (!this.currentPerk) {
+      UI.showToast('No tactical perk available.', 'warning');
+      return;
+    }
+    if (this.isPerkUsed) {
+      UI.showToast('Tactical perk has already been used.', 'warning');
+      return;
+    }
+    if (this.isPerkActive) {
+      UI.showToast(`${this.currentPerk.name} is currently active!`, 'info');
+      return;
+    }
+
+    const perk = this.currentPerk;
+
+    if (perk.id === 'freeze_tagger') {
+      this.isPerkActive = true;
+      this.isPerkUsed = true;
+      this.perkRemainingSeconds = perk.duration;
+      UI.playAudioCue('start');
+      UI.showToast('❄️ Freeze Tagger Activated! Seekers blinded for 30s.', 'success');
+      UI.updatePerkHUD(perk, `ACTIVE (${this.perkRemainingSeconds}s)`);
+      Network.broadcast('perk_activated', {
+        perkId: 'freeze_tagger',
+        activatorId: Network.playerId,
+        activatorName: this.nickname,
+        role: this.role,
+        duration: perk.duration
+      }, true);
+    } else if (perk.id === 'ghost_gps') {
+      this.isGhostActive = true;
+      this.isPerkActive = true;
+      this.isPerkUsed = true;
+      UI.playAudioCue('blip');
+      UI.showToast('👻 Ghost Cloak Activated! Your location will be completely hidden during the next global ping.', 'success');
+      UI.updatePerkHUD(perk, 'ACTIVE (NEXT PING)');
+      Network.broadcast('perk_activated', {
+        perkId: 'ghost_gps',
+        activatorId: Network.playerId,
+        activatorName: this.nickname,
+        role: this.role
+      }, true);
+    } else if (perk.id === 'global_freeze') {
+      this.isPerkActive = true;
+      this.isPerkUsed = true;
+      this.perkRemainingSeconds = perk.duration;
+      UI.playAudioCue('siren');
+      UI.showToast('🧊 Global Freeze Activated! All Runners are frozen for 25s.', 'success');
+      UI.updatePerkHUD(perk, `ACTIVE (${this.perkRemainingSeconds}s)`);
+      Network.broadcast('perk_activated', {
+        perkId: 'global_freeze',
+        activatorId: Network.playerId,
+        activatorName: this.nickname,
+        role: this.role,
+        duration: perk.duration
+      }, true);
+    } else if (perk.id === 'oracle') {
+      this.isPerkActive = true;
+      this.isPerkUsed = true;
+      this.isOracleActive = true;
+      this.oracleRemaining = perk.duration;
+      this.perkRemainingSeconds = perk.duration;
+      UI.playAudioCue('radar-blip');
+      UI.showToast('👁️ Oracle Live Tracker Activated! Streaming live runner locations for 15s.', 'success');
+      UI.updatePerkHUD(perk, `ACTIVE (${this.perkRemainingSeconds}s)`);
+      Network.broadcast('perk_activated', {
+        perkId: 'oracle',
+        activatorId: Network.playerId,
+        activatorName: this.nickname,
+        role: this.role,
+        duration: perk.duration
+      }, true);
+    }
+  }
+
+  onRemotePerkActivated(data) {
+    if (!data || !data.perkId) return;
+    const { perkId, activatorName, duration } = data;
+
+    if (perkId === 'freeze_tagger') {
+      if (this.role === 'seeker') {
+        this.isSeekerBlinded = true;
+        this.seekerBlindRemaining = duration || 30;
+        UI.playAudioCue('siren');
+        UI.notifyCriticalEvent('RADAR BLINDED', `❄️ ${activatorName || 'Runner'} activated Freeze Tagger! Radars disabled for ${this.seekerBlindRemaining}s.`, 'danger');
+        UI.vibrate([200, 100, 200, 100, 400]);
+        UI.showFrozenOverlay(true, 'SEEKER RADAR FROZEN', this.seekerBlindRemaining);
+      } else {
+        UI.showToast(`❄️ ${activatorName || 'Runner'} activated Freeze Tagger! Seekers blinded for 30s.`, 'info');
+      }
+    } else if (perkId === 'ghost_gps') {
+      if (this.role === 'seeker') {
+        UI.showToast(`👻 A Runner has activated Ghost Cloak! One signal will vanish.`, 'warning');
+      } else {
+        UI.showToast(`👻 Teammate ${activatorName || 'Runner'} activated Ghost Cloak.`, 'info');
+      }
+    } else if (perkId === 'global_freeze') {
+      if (this.role === 'runner' && !this.isTagged) {
+        this.isRunnerFrozen = true;
+        this.runnerFreezeRemaining = duration || 25;
+        UI.playAudioCue('siren');
+        UI.vibrate([300, 100, 300, 100, 500]);
+        UI.notifyCriticalEvent('GLOBAL FREEZE', `🧊 ${activatorName || 'Seeker'} activated Global Freeze! You are FROZEN for ${this.runnerFreezeRemaining}s. GPS paused!`, 'danger');
+        UI.showFrozenOverlay(true, 'YOU ARE FROZEN', this.runnerFreezeRemaining);
+      } else {
+        UI.showToast(`🧊 ${activatorName || 'Seeker'} activated Global Freeze! All Runners are frozen for 25s.`, 'info');
+      }
+    } else if (perkId === 'oracle') {
+      if (this.role === 'seeker') {
+        this.isOracleActive = true;
+        this.oracleRemaining = duration || 15;
+        UI.notifyCriticalEvent('ORACLE STREAMING', `👁️ ${activatorName || 'Seeker'} initiated Oracle Live Tracking!`, 'warning');
+      } else if (this.role === 'runner') {
+        UI.playAudioCue('siren');
+        UI.notifyCriticalEvent('ORACLE DETECTED', `⚠️ SEEKER ORACLE ACTIVE! Your exact live GPS is exposed for ${duration || 15}s!`, 'danger');
+        UI.vibrate([400, 200, 400]);
+      }
+    }
+  }
+
+  /**
+   * Register a static dropped ping or flare marker
+   */
+  recordStaticPing(playerId, lat, lng, nickname, type = 'ping') {
+    if (lat == null || lng == null) return;
+    this.staticDroppedPings.set(playerId, {
+      id: playerId,
+      nickname: nickname || 'Runner',
+      lat: Number(lat),
+      lng: Number(lng),
+      type: type,
+      timestamp: Date.now()
+    });
   }
 
   /**
@@ -1495,6 +1853,7 @@ class ManhuntGame {
             timestamp: Date.now()
           });
         }
+        this.assignRolePerk();
       } else {
         // Elimination Mode
         this.isTagged = true;

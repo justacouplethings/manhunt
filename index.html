@@ -35,8 +35,16 @@
          ==================================================================== -->
     <section id="screen-lobby" class="app-screen active">
       <header class="lobby-header">
-        <div class="game-logo" id="app-logo" style="cursor:pointer;" title="Tap 5 times for Admin Console">
-          <span>📡</span> MANHUNT
+        <div style="display:flex; justify-content:space-between; align-items:center; width:100%; max-width:440px; margin:0 auto 4px;">
+          <div class="game-logo" id="app-logo" style="cursor:pointer;" title="Tap 5 times for Admin Console">
+            <span>📡</span> MANHUNT
+          </div>
+          <div id="lobby-auth-container" style="display:flex; align-items:center; gap:8px;">
+            <div id="lobby-auth-profile-widget" style="display:none; align-items:center; gap:8px;"></div>
+            <button type="button" id="btn-open-auth-modal" class="btn-primary" style="padding:6px 14px; font-size:0.8rem; border-radius:20px;">
+              👤 SIGN IN
+            </button>
+          </div>
         </div>
         <div class="game-subhead">Tactical Real-World GPS Pursuit</div>
       </header>
@@ -98,10 +106,6 @@
             <span class="footer-btn-icon">⚙️</span>
             <span class="footer-btn-text">Settings & Themes</span>
           </button>
-          <a href="./privacy-policy.html" class="footer-nav-btn">
-            <span class="footer-btn-icon">🛡️</span>
-            <span class="footer-btn-text">Privacy Policy</span>
-          </a>
           <button type="button" id="btn-discreet-admin" class="footer-nav-btn footer-btn-admin" title="Omni-Command Admin Console">
             <span class="footer-btn-icon">⚡</span>
             <span class="footer-btn-text">Admin Console</span>
@@ -230,14 +234,8 @@
 
           <div style="display:grid; grid-template-columns:1fr; gap:10px; margin-top:10px;">
             <div class="input-group" style="margin-bottom:0;">
-              <label class="input-label" for="lobby-boundary">Play Boundary Radius</label>
-              <select id="lobby-boundary" class="tactical-input">
-                <option value="0">Off (No Boundary)</option>
-                <option value="500">500 Meters</option>
-                <option value="1000">1.0 Kilometer</option>
-                <option value="1500" selected>1.5 Kilometers</option>
-                <option value="3000">3.0 Kilometers</option>
-              </select>
+              <label class="input-label" for="lobby-boundary">Play Boundary Radius (Meters)</label>
+              <input type="number" id="lobby-boundary" class="tactical-input" min="0" max="50000" step="50" value="1500" placeholder="Boundary in meters (0 = Off)">
             </div>
           </div>
         </div>
@@ -346,19 +344,18 @@
           </button>
         </div>
 
-        <!-- Grace Period Banner -->
+        <!-- Grace Period Banner (Compact Minimalist) -->
         <div id="grace-period-banner" class="grace-banner">
           <div class="grace-top">
-            <span>⏳ HEAD START GRACE PERIOD</span>
+            <span>⏳ HEAD START:</span>
             <span id="grace-countdown-timer">03:00</span>
           </div>
-          <div class="grace-role-label">Runners have a head start! Wait for timer.</div>
         </div>
 
         <!-- Runner Ping Reveal Banner (Compact Sleek Glass Pill) -->
         <div id="hud-ping-banner" class="hud-ping-banner">
           <div class="ping-timer-row">
-            <span>📍 Runner Ping:</span>
+            <span>📍 PING IN:</span>
             <span id="hud-ping-timer" class="ping-time-val">05:00</span>
           </div>
           <div class="ping-progress-track">
@@ -366,22 +363,21 @@
           </div>
         </div>
 
-        <!-- Out of Bounds Alert Banner -->
+        <!-- Out of Bounds Alert Banner (Compact Minimalist) -->
         <div id="hud-oob-banner" class="hud-oob-banner" style="display:none;">
           <div class="oob-top">
-            <span>⚠️ OUT OF BOUNDS!</span>
+            <span>⚠️ OUT OF BOUNDS</span>
             <span id="hud-oob-distance">0m OUT</span>
           </div>
-          <div class="oob-desc">You have left the operation boundary! Return immediately!</div>
         </div>
       </div>
 
-      <!-- Bottom HUD Command Console Overlay -->
+      <!-- Bottom HUD Command Console Overlay (Minimalist Mobile-First) -->
       <div class="hud-bottom-overlay">
-        <!-- Radar Target Info -->
+        <!-- Static Ping Radar Console -->
         <div class="hud-radar-console">
           <div class="radar-target-block">
-            <div class="radar-subhead">CLOSEST OPPONENT</div>
+            <div class="radar-subhead">STATIC PING / FLARE</div>
             <div id="radar-distance-value" class="radar-distance">--</div>
             <div id="radar-target-name" class="radar-target-name">SCANNING SENSORS...</div>
           </div>
@@ -395,6 +391,18 @@
           🎯 TAG RUNNER (RANGE: 15m)
         </button>
 
+        <!-- Large Core Action Buttons Grid (Ping & Perk) -->
+        <div class="hud-core-actions-grid">
+          <button type="button" id="btn-hud-ping" class="hud-core-btn btn-core-ping">
+            <span class="core-btn-icon">📍</span>
+            <span id="hud-ping-btn-label">DROP PING</span>
+          </button>
+          <button type="button" id="btn-hud-perk" class="hud-core-btn btn-core-perk">
+            <span class="core-btn-icon">⚡</span>
+            <span id="hud-perk-btn-label">USE PERK</span>
+          </button>
+        </div>
+
         <!-- Action Buttons Row (Clean 3-Button Layout) -->
         <div class="hud-actions-row">
           <button type="button" id="btn-recenter" class="hud-action-btn active">
@@ -404,7 +412,7 @@
             <span>🗺️</span> Fit All
           </button>
           <button type="button" id="btn-panic-ping" class="hud-action-btn btn-flare">
-            <span>📍</span> Flare
+            <span>🚨</span> Flare
           </button>
         </div>
       </div>
@@ -471,55 +479,16 @@
           <span>💾</span> SAVE SETTINGS
         </button>
 
-        <div style="display:flex; justify-content:space-between; margin-top:6px;">
-          <button type="button" id="btn-open-privacy" class="text-btn">
-            <span>🛡️</span> Privacy Policy
-          </button>
+        <div style="display:flex; justify-content:flex-end; margin-top:6px;">
           <button type="button" id="btn-reset-data" class="text-btn" style="color:#ff5555;">
             <span>🔄</span> Restore Defaults
           </button>
         </div>
       </div>
     </section>
-          </button>
-        </div>
-      </div>
-    </section>
 
     <!-- ====================================================================
-         SCREEN 5: IN-APP PRIVACY POLICY
-         ==================================================================== -->
-    <section id="screen-privacy" class="app-screen">
-      <header class="settings-header">
-        <h2 style="font-size:1.15rem; font-weight:800; letter-spacing:1px;">PRIVACY POLICY</h2>
-        <button type="button" id="btn-close-privacy" class="text-btn" style="font-size:1.3rem;">✕</button>
-      </header>
-
-      <div class="settings-body" style="font-size:0.9rem; line-height:1.6;">
-        <div class="card">
-          <p style="color:var(--theme-primary); font-weight:700; margin-bottom:10px;">
-            Google Play & iOS Location Privacy Commitment
-          </p>
-          <p style="color:var(--theme-text-muted); margin-bottom:12px;">
-            Manhunt is an active outdoor GPS pursuit game. We respect your digital privacy:
-          </p>
-          <ul style="padding-left:20px; color:var(--theme-text-muted); display:flex; flex-direction:column; gap:8px;">
-            <li><strong>Zero Permanent Tracking:</strong> Location coordinates are used in real-time exclusively while in an active match and are never stored on permanent databases.</li>
-            <li><strong>No Ads or Data Selling:</strong> We do not include third-party ad networks, tracking SDKs, or monetized data brokers.</li>
-            <li><strong>Ephemeral Nicknames:</strong> No email, password, or real name registration is ever required.</li>
-            <li><strong>Encrypted Transport:</strong> Room updates are transmitted over secure TLS/WSS connections directly between room participants.</li>
-          </ul>
-          <p style="margin-top:16px;">
-            <a href="./privacy-policy.html" target="_blank" style="color:var(--theme-primary); font-weight:700; text-decoration:none;">
-              Open Full Web Privacy Policy →
-            </a>
-          </p>
-        </div>
-      </div>
-    </section>
-
-    <!-- ====================================================================
-         SCREEN 6: GAME OVER & VICTORY SCREEN
+         SCREEN 5: GAME OVER & VICTORY SCREEN
          ==================================================================== -->
     <section id="screen-gameover" class="app-screen">
       <div class="lobby-container" style="justify-content:center; text-align:center;">
@@ -995,6 +964,27 @@
             </label>
           </div>
 
+          <!-- Bot Simulation Toggle -->
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 12px; background:rgba(255,255,255,0.03); border:1px solid var(--theme-border); border-radius:var(--radius-md);">
+            <div>
+              <div style="font-weight:700; font-size:0.88rem; color:var(--theme-text-primary); display:flex; align-items:center; gap:6px;">
+                <span>🤖</span> Bot Simulation Sandbox
+              </div>
+              <div style="font-size:0.72rem; color:var(--theme-text-muted);">
+                Autonomous simulated hunter & runner bots
+              </div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="ingame-setting-simulation">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <!-- Discreet Admin Console Access -->
+          <button type="button" id="btn-open-admin-from-settings" class="btn-secondary" style="width:100%; font-size:0.85rem; padding:10px; display:flex; align-items:center; justify-content:center; gap:8px;">
+            <span>⚡</span> OMNI-COMMAND ADMIN CONSOLE
+          </button>
+
           <!-- Match Status Info Card -->
           <div style="padding:10px 12px; background:rgba(0, 245, 180, 0.05); border:1px solid rgba(0, 245, 180, 0.2); border-radius:var(--radius-md); font-size:0.78rem;">
             <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
@@ -1199,22 +1189,104 @@
           </div>
 
           <div class="input-group" style="margin-bottom:14px;">
-            <label class="input-label" for="prompt-boundary-radius">Play Boundary Radius</label>
-            <select id="prompt-boundary-radius" class="tactical-input">
-              <option value="250">250 Meters (Small Park / Campus)</option>
-              <option value="500">500 Meters (Neighborhood)</option>
-              <option value="1000">1.0 Kilometer (Standard District)</option>
-              <option value="1500" selected>1.5 Kilometers (Wide District)</option>
-              <option value="3000">3.0 Kilometers (City Scale)</option>
-              <option value="5000">5.0 Kilometers (Large Area)</option>
-              <option value="0">Off (No Boundary)</option>
-            </select>
+            <label class="input-label" for="prompt-boundary-radius">Play Boundary Radius (Meters)</label>
+            <input type="number" id="prompt-boundary-radius" class="tactical-input" min="0" max="50000" step="50" value="1500" placeholder="Boundary in meters (0 = Off)">
           </div>
         </div>
 
         <div style="display:flex; gap:10px; margin-top:8px; flex-shrink:0;">
           <button type="button" id="btn-cancel-boundary-confirm" class="btn-secondary" style="flex:1;">CANCEL</button>
           <button type="button" id="btn-confirm-start-match" class="btn-primary" style="flex:1;">START MATCH</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================================
+         MODAL: FIREBASE AUTHENTICATION & COLORED AVATARS
+         ==================================================================== -->
+    <div id="modal-auth" class="modal-backdrop">
+      <div class="modal-content auth-modal" style="max-width:420px; text-align:left;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="font-size:1.6rem;">🛡️</span>
+            <div>
+              <h2 style="font-size:1.15rem; font-weight:900; letter-spacing:1px; margin:0;">OPERATIVE ACCESS</h2>
+              <div style="font-size:0.75rem; color:var(--theme-text-muted);">Firebase Authentication & Profile</div>
+            </div>
+          </div>
+          <button type="button" id="btn-close-auth" class="text-btn" style="font-size:1.3rem; padding:4px 8px;">✕</button>
+        </div>
+
+        <!-- Auth Mode Tabs -->
+        <div class="auth-tabs" style="display:flex; gap:8px; margin-bottom:14px; border-bottom:1px solid var(--theme-border); padding-bottom:8px;">
+          <button type="button" id="tab-btn-signin" class="admin-nav-tab active" style="flex:1; text-align:center;">SIGN IN</button>
+          <button type="button" id="tab-btn-signup" class="admin-nav-tab" style="flex:1; text-align:center;">CREATE ACCOUNT</button>
+        </div>
+
+        <!-- Sign In View -->
+        <div id="auth-view-signin" style="display:block;">
+          <div class="input-group">
+            <label class="input-label" for="auth-signin-email">Email Address</label>
+            <input type="email" id="auth-signin-email" class="tactical-input" placeholder="agent@tactical.net">
+          </div>
+          <div class="input-group">
+            <label class="input-label" for="auth-signin-password">Password</label>
+            <input type="password" id="auth-signin-password" class="tactical-input" placeholder="••••••••">
+          </div>
+          <div id="auth-signin-error" style="display:none; color:#ff4757; font-size:0.8rem; margin-bottom:10px;"></div>
+          <button type="button" id="btn-auth-signin-submit" class="btn-primary" style="width:100%;">
+            SIGN IN
+          </button>
+        </div>
+
+        <!-- Sign Up View -->
+        <div id="auth-view-signup" style="display:none;">
+          <div class="input-group">
+            <label class="input-label" for="auth-signup-username">Callsign / Username</label>
+            <input type="text" id="auth-signup-username" class="tactical-input" placeholder="e.g. Ghost, Apex, Raptor" maxlength="15">
+          </div>
+          <div class="input-group">
+            <label class="input-label" for="auth-signup-email">Email Address</label>
+            <input type="email" id="auth-signup-email" class="tactical-input" placeholder="agent@tactical.net">
+          </div>
+          <div class="input-group">
+            <label class="input-label" for="auth-signup-password">Password</label>
+            <input type="password" id="auth-signup-password" class="tactical-input" placeholder="At least 6 characters">
+          </div>
+
+          <!-- Colored Avatar Selection -->
+          <div class="input-group">
+            <label class="input-label">Avatar Solid Color</label>
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">
+              <div id="auth-avatar-preview" class="user-colored-avatar-preview" style="width:48px; height:48px; min-width:48px; border-radius:50%; background:#00f5b4; color:#07090e; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:1.3rem; border:2px solid #fff; box-shadow:0 0 16px rgba(0,245,180,0.4);">
+                P
+              </div>
+              <div style="font-size:0.75rem; color:var(--theme-text-muted);">
+                Choose your signature color for circular avatar & squad display.
+              </div>
+            </div>
+
+            <!-- Preset Color Palette Grid -->
+            <div class="auth-color-grid" style="display:grid; grid-template-columns:repeat(8, 1fr); gap:6px; margin-bottom:8px;">
+              <div class="auth-color-swatch selected" data-color="#00f5b4" style="background:#00f5b4; height:28px; border-radius:50%; cursor:pointer; border:2px solid transparent;"></div>
+              <div class="auth-color-swatch" data-color="#00f0ff" style="background:#00f0ff; height:28px; border-radius:50%; cursor:pointer; border:2px solid transparent;"></div>
+              <div class="auth-color-swatch" data-color="#ff4757" style="background:#ff4757; height:28px; border-radius:50%; cursor:pointer; border:2px solid transparent;"></div>
+              <div class="auth-color-swatch" data-color="#ffa502" style="background:#ffa502; height:28px; border-radius:50%; cursor:pointer; border:2px solid transparent;"></div>
+              <div class="auth-color-swatch" data-color="#a55eea" style="background:#a55eea; height:28px; border-radius:50%; cursor:pointer; border:2px solid transparent;"></div>
+              <div class="auth-color-swatch" data-color="#2ed573" style="background:#2ed573; height:28px; border-radius:50%; cursor:pointer; border:2px solid transparent;"></div>
+              <div class="auth-color-swatch" data-color="#ff6b81" style="background:#ff6b81; height:28px; border-radius:50%; cursor:pointer; border:2px solid transparent;"></div>
+              <div class="auth-color-swatch" data-color="#70a1ff" style="background:#70a1ff; height:28px; border-radius:50%; cursor:pointer; border:2px solid transparent;"></div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <input type="color" id="auth-custom-color" value="#00f5b4" style="width:36px; height:32px; border:none; background:transparent; cursor:pointer;">
+              <span style="font-size:0.75rem; color:var(--theme-text-secondary);">Custom Color Hex</span>
+            </div>
+          </div>
+
+          <div id="auth-signup-error" style="display:none; color:#ff4757; font-size:0.8rem; margin-bottom:10px;"></div>
+          <button type="button" id="btn-auth-signup-submit" class="btn-primary" style="width:100%;">
+            CREATE OPERATIVE ACCOUNT
+          </button>
         </div>
       </div>
     </div>
@@ -1382,12 +1454,18 @@
 
   </div>
 
+  <!-- Firebase SDKs (Auth + Firestore) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
   <!-- Vendor Libraries (Bundled offline for APK/iOS zero CDN dependency) -->
   <script src="js/paho-mqtt.min.js"></script>
   <script src="js/leaflet.js"></script>
 
   <!-- Application Modules -->
   <script src="js/config.js?v=2.4"></script>
+  <script src="js/auth.js?v=2.4"></script>
   <script src="js/geo.js?v=2.4"></script>
   <script src="js/network.js?v=2.4"></script>
   <script src="js/map.js?v=2.4"></script>

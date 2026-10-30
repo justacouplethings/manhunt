@@ -2813,4 +2813,155 @@ input:checked + .slider::before {
   }
 }
 
+/* ==========================================================================
+   MOBILE-FIRST MINIMALIST HUD & CORE ACTION BUTTONS OVERHAUL
+   ========================================================================== */
+
+.hud-core-actions-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+  pointer-events: auto;
+}
+
+.hud-core-btn {
+  min-height: 54px;
+  padding: 12px 14px;
+  border-radius: var(--radius-xl, 18px);
+  font-family: var(--font-family);
+  font-size: 0.92rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hud-core-btn:active {
+  transform: scale(0.96);
+}
+
+.btn-core-ping {
+  background: linear-gradient(135deg, rgba(0, 245, 180, 0.25), rgba(0, 212, 255, 0.35));
+  color: #00f5b4;
+  border-color: rgba(0, 245, 180, 0.4);
+  box-shadow: 0 0 16px rgba(0, 245, 180, 0.25);
+}
+
+.btn-core-ping:hover {
+  background: linear-gradient(135deg, rgba(0, 245, 180, 0.35), rgba(0, 212, 255, 0.5));
+  box-shadow: 0 0 24px rgba(0, 245, 180, 0.4);
+}
+
+.btn-core-perk {
+  background: linear-gradient(135deg, rgba(255, 165, 2, 0.2), rgba(255, 71, 87, 0.3));
+  color: #ffa502;
+  border-color: rgba(255, 165, 2, 0.4);
+  box-shadow: 0 0 16px rgba(255, 165, 2, 0.25);
+}
+
+.btn-core-perk:hover {
+  background: linear-gradient(135deg, rgba(255, 165, 2, 0.3), rgba(255, 71, 87, 0.45));
+  box-shadow: 0 0 24px rgba(255, 165, 2, 0.4);
+}
+
+.btn-core-perk:disabled {
+  opacity: 0.45;
+  filter: grayscale(0.6);
+  cursor: not-allowed;
+}
+
+.hud-floating-map-dock {
+  position: absolute;
+  top: 96px;
+  right: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+  pointer-events: auto;
+}
+
+.hud-dock-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--theme-surface-glass-elevated, rgba(18, 24, 38, 0.85));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--theme-border, rgba(255, 255, 255, 0.12));
+  color: #fff;
+  font-size: 1.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.hud-dock-btn:active {
+  transform: scale(0.92);
+}
+
+.hud-frozen-banner {
+  margin: 6px auto 0;
+  background: rgba(0, 240, 255, 0.18);
+  border: 1px solid rgba(0, 240, 255, 0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: var(--radius-lg, 12px);
+  padding: 8px 14px;
+  box-shadow: 0 0 24px rgba(0, 240, 255, 0.35);
+  animation: pulse-border 1.5s infinite alternate;
+}
+
+.frozen-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ==========================================================================
+   FIREBASE AUTHENTICATION & COLORED AVATARS STYLING
+   ========================================================================== */
+
+.auth-color-swatch {
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.auth-color-swatch:hover {
+  transform: scale(1.15);
+}
+
+.auth-color-swatch.selected {
+  border-color: #ffffff;
+  transform: scale(1.2);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+}
+
+.user-colored-avatar {
+  border-radius: 50%;
+  font-family: var(--font-family);
+  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
 

@@ -376,11 +376,19 @@ class UIManager {
 
   startFlareCooldown(seconds) {
     const btn = document.getElementById('btn-panic-ping');
-    if (!btn) return;
-    btn.classList.add('btn-cooldown');
-    btn.disabled = true;
+    const hudPingBtn = document.getElementById('btn-hud-ping');
+    const label = document.getElementById('hud-ping-btn-label');
+    if (btn) {
+      btn.classList.add('btn-cooldown');
+      btn.disabled = true;
+      btn.innerHTML = `<span>⏳</span> ${seconds}s`;
+    }
+    if (hudPingBtn) {
+      hudPingBtn.classList.add('btn-cooldown');
+      hudPingBtn.disabled = true;
+      if (label) label.textContent = `RECHARGING (${seconds}s)`;
+    }
     let remaining = seconds;
-    btn.innerHTML = `<span>⏳</span> ${remaining}s`;
 
     if (this.flareInterval) clearInterval(this.flareInterval);
     this.flareInterval = setInterval(() => {
@@ -388,11 +396,19 @@ class UIManager {
       if (remaining <= 0) {
         clearInterval(this.flareInterval);
         this.flareInterval = null;
-        btn.classList.remove('btn-cooldown');
-        btn.disabled = false;
-        btn.innerHTML = `<span>📍</span> Flare`;
+        if (btn) {
+          btn.classList.remove('btn-cooldown');
+          btn.disabled = false;
+          btn.innerHTML = `<span>📍</span> Flare`;
+        }
+        if (hudPingBtn) {
+          hudPingBtn.classList.remove('btn-cooldown');
+          hudPingBtn.disabled = false;
+          if (label) label.textContent = Game.role === 'seeker' ? 'RADAR PULSE' : 'DROP PING';
+        }
       } else {
-        btn.innerHTML = `<span>⏳</span> ${remaining}s`;
+        if (btn) btn.innerHTML = `<span>⏳</span> ${remaining}s`;
+        if (label) label.textContent = `RECHARGING (${remaining}s)`;
       }
     }, 1000);
   }
@@ -472,10 +488,17 @@ class UIManager {
         `;
       }
 
+      const avatarHtml = typeof AuthManager !== 'undefined'
+        ? AuthManager.renderAvatarHtml(p.nickname, p.avatarColor || '#00f5b4', 32)
+        : '';
+
       item.innerHTML = `
-        <div class="player-info">
-          <span class="player-role-badge">${p.role.toUpperCase()}</span>
-          <span class="player-name">${p.nickname}</span>
+        <div class="player-info" style="display:flex; align-items:center; gap:8px;">
+          ${avatarHtml}
+          <div>
+            <span class="player-name">${p.nickname}</span>
+            <span class="player-role-badge">${p.role.toUpperCase()}</span>
+          </div>
         </div>
         <div class="player-card-actions">
           ${p.isHost ? '<span class="host-badge">HOST</span>' : ''}
@@ -666,33 +689,112 @@ class UIManager {
     }
   }
 
-  updateProximityHUD(distanceMeters, bearingDegrees, opponentInfo, isLocked = false) {
+  updateProximityHUD(distanceMeters, bearingDegrees, pingInfo, isLocked = false) {
     const distEl = document.getElementById('radar-distance-value');
     const dirEl = document.getElementById('radar-direction-arrow');
     const nameEl = document.getElementById('radar-target-name');
     const subheadEl = document.querySelector('.radar-subhead');
 
+    if (typeof Game !== 'undefined' && Game.isSeekerBlinded) {
+      if (subheadEl) {
+        subheadEl.textContent = '❄️ RADAR BLINDED';
+        subheadEl.style.color = '#ff6b81';
+      }
+      if (distEl) distEl.textContent = 'OFFLINE';
+      if (nameEl) nameEl.textContent = 'RADAR SYSTEM FROZEN';
+      if (dirEl) {
+        dirEl.style.opacity = '0.2';
+        dirEl.style.transform = 'rotate(0deg)';
+      }
+      return;
+    }
+
     if (subheadEl) {
       if (isLocked) {
-        subheadEl.textContent = '🔒 LOCKED TARGET';
+        subheadEl.textContent = '🔒 LOCKED PING';
         subheadEl.style.color = 'var(--theme-accent-cyan)';
+      } else if (pingInfo && pingInfo.type === 'flare') {
+        subheadEl.textContent = '🔥 ACTIVE FLARE';
+        subheadEl.style.color = '#ff4757';
+      } else if (pingInfo) {
+        subheadEl.textContent = '📍 STATIC PING';
+        subheadEl.style.color = 'var(--theme-primary)';
       } else {
-        subheadEl.textContent = Game.role === 'seeker' ? 'CLOSEST RUNNER (AUTO)' : 'CLOSEST PURSUER';
+        subheadEl.textContent = 'STATIC PING / FLARE';
         subheadEl.style.color = 'var(--theme-text-secondary)';
       }
     }
 
-    if (distanceMeters === null) {
+    if (distanceMeters === null || !pingInfo) {
       if (distEl) distEl.textContent = '--';
-      if (nameEl) nameEl.textContent = 'SCANNING FOR SIGNALS...';
-      if (dirEl) dirEl.style.transform = 'rotate(0deg)';
+      if (nameEl) nameEl.textContent = 'WAITING FOR PINGS...';
+      if (dirEl) {
+        dirEl.style.opacity = '0.3';
+        dirEl.style.transform = 'rotate(0deg)';
+      }
       return;
     }
 
     if (distEl) distEl.textContent = GeoEngine.formatDistance(distanceMeters);
-    if (nameEl && opponentInfo) nameEl.textContent = `${opponentInfo.nickname.toUpperCase()}`;
+    if (nameEl) {
+      nameEl.textContent = `${pingInfo.nickname.toUpperCase()} (${pingInfo.type === 'flare' ? 'FLARE' : 'STATIC PING'})`;
+    }
     if (dirEl) {
+      dirEl.style.opacity = '1';
       dirEl.style.transform = `rotate(${bearingDegrees}deg)`;
+    }
+  }
+
+  updatePerkHUD(perk, statusText = 'READY') {
+    const perkBtn = document.getElementById('btn-hud-perk');
+    const labelEl = document.getElementById('hud-perk-btn-label');
+    if (!perkBtn) return;
+
+    if (!perk) {
+      perkBtn.style.opacity = '0.4';
+      perkBtn.disabled = true;
+      if (labelEl) labelEl.textContent = 'NO PERK';
+      return;
+    }
+
+    perkBtn.style.opacity = statusText === 'DEPLETED' ? '0.5' : '1';
+    perkBtn.disabled = statusText === 'DEPLETED';
+
+    if (labelEl) {
+      labelEl.innerHTML = `${perk.icon} ${perk.name.toUpperCase()} <span style="font-size:0.75rem; opacity:0.8;">[${statusText}]</span>`;
+    }
+  }
+
+  showFrozenOverlay(show, title = 'YOU ARE FROZEN', seconds = 25) {
+    let overlay = document.getElementById('hud-frozen-banner');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'hud-frozen-banner';
+      overlay.className = 'hud-frozen-banner';
+      const hudOverlay = document.querySelector('.hud-header-overlay');
+      if (hudOverlay) hudOverlay.appendChild(overlay);
+    }
+
+    if (show) {
+      overlay.style.display = 'flex';
+      overlay.innerHTML = `
+        <div class="frozen-banner-content">
+          <span style="font-size:1.6rem;">🧊</span>
+          <div>
+            <div style="font-weight:900; font-size:0.95rem; letter-spacing:1px; color:#00f0ff;">${title}</div>
+            <div style="font-size:0.75rem; color:#fff;">GPS updates paused: <span id="frozen-countdown-val" style="font-weight:800; color:#00f5b4;">${seconds}s</span> remaining</div>
+          </div>
+        </div>
+      `;
+    } else {
+      overlay.style.display = 'none';
+    }
+  }
+
+  updateFrozenOverlay(remainingSeconds) {
+    const valEl = document.getElementById('frozen-countdown-val');
+    if (valEl) {
+      valEl.textContent = `${remainingSeconds}s`;
     }
   }
 
@@ -717,8 +819,8 @@ class UIManager {
     autoCard.className = `target-card ${lockedId === null ? 'locked' : ''}`;
     autoCard.innerHTML = `
       <div>
-        <div style="font-weight:800; font-size:0.9rem;">Auto: Closest Runner</div>
-        <div style="font-size:0.75rem; color:var(--theme-text-secondary);">Dynamic lock onto the nearest target</div>
+        <div style="font-weight:800; font-size:0.9rem;">Auto: Nearest Static Ping</div>
+        <div style="font-size:0.75rem; color:var(--theme-text-secondary);">Dynamic compass lock to closest dropped ping</div>
       </div>
       <span class="status-badge ${lockedId === null ? 'status-online' : ''}">${lockedId === null ? 'ACTIVE' : 'SELECT'}</span>
     `;
@@ -733,10 +835,11 @@ class UIManager {
       const isLocked = t.id === lockedId;
       const card = document.createElement('div');
       card.className = `target-card ${isLocked ? 'locked' : ''}`;
+      const pingText = t.distance !== Infinity ? `${GeoEngine.formatDistance(t.distance)} (Static Ping)` : 'Awaiting initial ping';
       card.innerHTML = `
         <div>
           <div style="font-weight:800; font-size:0.9rem;">${t.nickname}</div>
-          <div style="font-size:0.75rem; color:var(--theme-text-secondary);">${GeoEngine.formatDistance(t.distance)} | ${GeoEngine.getCardinalDirection(t.bearing)} (${Math.round(t.bearing)}°)</div>
+          <div style="font-size:0.75rem; color:var(--theme-text-secondary);">${pingText}</div>
         </div>
         <span class="status-badge ${isLocked ? 'status-online' : ''}">${isLocked ? 'LOCKED' : 'LOCK ON'}</span>
       `;
@@ -811,6 +914,11 @@ class UIManager {
 
     const flareBtn = document.getElementById('btn-panic-ping');
     if (flareBtn) flareBtn.style.display = isSeeker ? 'none' : 'flex';
+
+    const hudPingLabel = document.getElementById('hud-ping-btn-label');
+    if (hudPingLabel) {
+      hudPingLabel.textContent = isSeeker ? 'RADAR PULSE' : 'DROP PING';
+    }
 
     const radarContainer = document.querySelector('.radar-container');
     if (radarContainer) {
@@ -972,7 +1080,8 @@ class UIManager {
     if (confirmStartMatchBtn) {
       confirmStartMatchBtn.onclick = () => {
         const radiusSel = document.getElementById('prompt-boundary-radius');
-        const radius = radiusSel ? parseInt(radiusSel.value, 10) : Config.settings.boundaryRadiusMeters;
+        const rawRadius = radiusSel ? parseInt(radiusSel.value, 10) : Config.settings.boundaryRadiusMeters;
+        const radius = isNaN(rawRadius) ? 0 : Math.max(0, rawRadius);
         this.closeModal('modal-boundary-confirm');
         Game.confirmAndLaunchMatch(radius);
       };
@@ -1028,7 +1137,8 @@ class UIManager {
       const tagDistance = parseInt(document.getElementById('lobby-tag-distance').value, 10);
       const captureMode = document.getElementById('lobby-capture-mode').value;
       const tagConfirm = document.getElementById('lobby-tag-confirm').value === 'true';
-      const boundary = parseInt(document.getElementById('lobby-boundary').value, 10);
+      const rawBoundary = parseInt(document.getElementById('lobby-boundary').value, 10);
+      const boundary = isNaN(rawBoundary) ? 0 : Math.max(0, rawBoundary);
       const flareCooldown = parseInt(document.getElementById('lobby-flare-cooldown')?.value, 10) || 60;
 
       const updated = {
@@ -1051,7 +1161,10 @@ class UIManager {
 
     ['lobby-seeker-mode', 'lobby-runner-interval', 'lobby-grace-period', 'lobby-match-duration', 'lobby-tag-distance', 'lobby-capture-mode', 'lobby-tag-confirm', 'lobby-boundary', 'lobby-flare-cooldown'].forEach(id => {
       const el = document.getElementById(id);
-      if (el) el.onchange = handleLobbyConfigChange;
+      if (el) {
+        el.onchange = handleLobbyConfigChange;
+        if (el.tagName === 'INPUT') el.oninput = handleLobbyConfigChange;
+      }
     });
 
     // Host Mission Control HUD & Modal
@@ -1099,11 +1212,192 @@ class UIManager {
       if (!document.hidden) this.refreshReadinessBadges();
     });
 
-    // Runner Manual Ping / Flare
+    // Runner Manual Ping / Flare / Core Action Buttons
+    const hudPingBtn = document.getElementById('btn-hud-ping');
+    if (hudPingBtn) {
+      hudPingBtn.onclick = () => {
+        Game.triggerPingButton();
+      };
+    }
+
+    const hudPerkBtn = document.getElementById('btn-hud-perk');
+    if (hudPerkBtn) {
+      hudPerkBtn.onclick = () => {
+        Game.usePerk();
+      };
+    }
+
     const panicPingBtn = document.getElementById('btn-panic-ping');
     if (panicPingBtn) {
       panicPingBtn.onclick = () => {
-        Game.triggerFlare();
+        Game.triggerPingButton();
+      };
+    }
+
+    // In-game Settings Admin Access & Simulation Controls
+    const openAdminFromSettings = document.getElementById('btn-open-admin-from-settings');
+    if (openAdminFromSettings) {
+      openAdminFromSettings.onclick = () => {
+        this.closeModal('modal-ingame-settings');
+        this.openAdminAuthModal();
+      };
+    }
+
+    const ingameSim = document.getElementById('ingame-setting-simulation');
+    if (ingameSim) {
+      ingameSim.checked = !!Config.settings.simulationMode;
+      ingameSim.onchange = (e) => {
+        if (e.target.checked) {
+          Simulation.start();
+          this.showToast('Sandbox Bots activated', 'info');
+        } else {
+          Simulation.stop();
+          this.showToast('Sandbox Bots deactivated', 'info');
+        }
+      };
+    }
+
+    // ========================================================================
+    // FIREBASE AUTHENTICATION & PROFILE MODAL LISTENERS
+    // ========================================================================
+    const openAuthBtn = document.getElementById('btn-open-auth-modal');
+    if (openAuthBtn) {
+      openAuthBtn.onclick = () => this.showModal('modal-auth');
+    }
+
+    const closeAuthBtn = document.getElementById('btn-close-auth');
+    if (closeAuthBtn) {
+      closeAuthBtn.onclick = () => this.closeModal('modal-auth');
+    }
+
+    const tabSignin = document.getElementById('tab-btn-signin');
+    const tabSignup = document.getElementById('tab-btn-signup');
+    const viewSignin = document.getElementById('auth-view-signin');
+    const viewSignup = document.getElementById('auth-view-signup');
+
+    if (tabSignin && tabSignup && viewSignin && viewSignup) {
+      tabSignin.onclick = () => {
+        tabSignin.classList.add('active');
+        tabSignup.classList.remove('active');
+        viewSignin.style.display = 'block';
+        viewSignup.style.display = 'none';
+      };
+      tabSignup.onclick = () => {
+        tabSignup.classList.add('active');
+        tabSignin.classList.remove('active');
+        viewSignup.style.display = 'block';
+        viewSignin.style.display = 'none';
+      };
+    }
+
+    // Preset avatar solid color swatches & preview
+    const updateAvatarPreview = () => {
+      const previewEl = document.getElementById('auth-avatar-preview');
+      const usernameInput = document.getElementById('auth-signup-username');
+      const username = usernameInput ? usernameInput.value.trim() : 'P';
+      const color = AuthManager.selectedColor || '#00f5b4';
+      if (previewEl) {
+        previewEl.style.backgroundColor = color;
+        previewEl.textContent = (username || 'P').charAt(0).toUpperCase();
+        previewEl.style.boxShadow = `0 0 16px ${color}88`;
+      }
+    };
+
+    const colorSwatches = document.querySelectorAll('.auth-color-swatch');
+    colorSwatches.forEach(swatch => {
+      swatch.onclick = () => {
+        colorSwatches.forEach(s => s.classList.remove('selected'));
+        swatch.classList.add('selected');
+        const color = swatch.getAttribute('data-color');
+        if (color) {
+          AuthManager.selectedColor = color;
+          const customInput = document.getElementById('auth-custom-color');
+          if (customInput) customInput.value = color;
+          updateAvatarPreview();
+        }
+      };
+    });
+
+    const customColorInput = document.getElementById('auth-custom-color');
+    if (customColorInput) {
+      customColorInput.oninput = (e) => {
+        colorSwatches.forEach(s => s.classList.remove('selected'));
+        AuthManager.selectedColor = e.target.value;
+        updateAvatarPreview();
+      };
+    }
+
+    const signupUsernameInput = document.getElementById('auth-signup-username');
+    if (signupUsernameInput) {
+      signupUsernameInput.oninput = () => updateAvatarPreview();
+    }
+
+    // Sign Up Form Submission
+    const btnSignupSubmit = document.getElementById('btn-auth-signup-submit');
+    if (btnSignupSubmit) {
+      btnSignupSubmit.onclick = async () => {
+        const username = document.getElementById('auth-signup-username')?.value.trim();
+        const email = document.getElementById('auth-signup-email')?.value.trim();
+        const pass = document.getElementById('auth-signup-password')?.value;
+        const errEl = document.getElementById('auth-signup-error');
+
+        if (!username || !email || !pass) {
+          if (errEl) {
+            errEl.textContent = 'Please provide username, email, and password.';
+            errEl.style.display = 'block';
+          }
+          return;
+        }
+
+        btnSignupSubmit.disabled = true;
+        btnSignupSubmit.textContent = 'CREATING ACCOUNT...';
+        const res = await AuthManager.signUp(email, pass, username, AuthManager.selectedColor);
+        btnSignupSubmit.disabled = false;
+        btnSignupSubmit.textContent = 'CREATE OPERATIVE ACCOUNT';
+
+        if (res.success) {
+          this.closeModal('modal-auth');
+          this.showToast(`Welcome Operative ${username}! Profile saved.`, 'success');
+        } else {
+          if (errEl) {
+            errEl.textContent = res.error || 'Failed to create account.';
+            errEl.style.display = 'block';
+          }
+        }
+      };
+    }
+
+    // Sign In Form Submission
+    const btnSigninSubmit = document.getElementById('btn-auth-signin-submit');
+    if (btnSigninSubmit) {
+      btnSigninSubmit.onclick = async () => {
+        const email = document.getElementById('auth-signin-email')?.value.trim();
+        const pass = document.getElementById('auth-signin-password')?.value;
+        const errEl = document.getElementById('auth-signin-error');
+
+        if (!email || !pass) {
+          if (errEl) {
+            errEl.textContent = 'Please enter both email and password.';
+            errEl.style.display = 'block';
+          }
+          return;
+        }
+
+        btnSigninSubmit.disabled = true;
+        btnSigninSubmit.textContent = 'AUTHENTICATING...';
+        const res = await AuthManager.signIn(email, pass);
+        btnSigninSubmit.disabled = false;
+        btnSigninSubmit.textContent = 'SIGN IN';
+
+        if (res.success) {
+          this.closeModal('modal-auth');
+          this.showToast(`Signed in as ${AuthManager.currentUser.username}`, 'success');
+        } else {
+          if (errEl) {
+            errEl.textContent = res.error || 'Invalid credentials.';
+            errEl.style.display = 'block';
+          }
+        }
       };
     }
 
@@ -1212,12 +1506,6 @@ class UIManager {
         }
       };
     }
-
-    // Privacy Policy in-app reader
-    const openPrivacyBtn = document.getElementById('btn-open-privacy');
-    const closePrivacyBtn = document.getElementById('btn-close-privacy');
-    if (openPrivacyBtn) openPrivacyBtn.onclick = () => this.showScreen('screen-privacy');
-    if (closePrivacyBtn) closePrivacyBtn.onclick = () => this.showScreen('screen-settings');
 
     // Reset Data
     const resetBtn = document.getElementById('btn-reset-data');

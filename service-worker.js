@@ -7,6 +7,7 @@ const ASSETS_TO_CACHE = [
   './js/leaflet.js',
   './js/paho-mqtt.min.js',
   './js/config.js',
+  './js/auth.js',
   './js/geo.js',
   './js/network.js',
   './js/map.js',
@@ -16,8 +17,7 @@ const ASSETS_TO_CACHE = [
   './manifest.json',
   './assets/icon.png',
   './assets/icon-192.png',
-  './assets/favicon.png',
-  './privacy-policy.html'
+  './assets/favicon.png'
 ];
 
 self.addEventListener('install', (event) => {
