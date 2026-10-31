@@ -21,6 +21,7 @@ const DEFAULT_CONFIG = {
   dynamicNearDistanceMeters: 100, // Distance threshold triggering near real-time 1s polling
   boundaryRadiusMeters: 1500,     // Play boundary (0 = off, 250, 500, 1000, 1500, 2000, 3000, 5000)
   flareCooldownSeconds: 60,       // Cooldown duration between manual runner flares (prevents notification spam)
+  seekerRadarCooldownSeconds: 30, // Cooldown duration between seeker radar pulses (dictated by host)
 
   // Sensory & Hardware
   soundEnabled: true,             // Tactical audio synthesizer

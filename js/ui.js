@@ -310,15 +310,37 @@ class UIManager {
     const container = document.getElementById('toast-container');
     if (!container) return;
 
+    // Anti-spam: Check if an identical notification is currently active/visible on screen
+    const activeToasts = Array.from(container.children);
+    const existing = activeToasts.find(t => t._baseMessage === message && !t.classList.contains('fade-out'));
+
+    if (existing) {
+      existing._count = (existing._count || 1) + 1;
+      existing.innerHTML = `${message} <span class="toast-multiplier">[${existing._count}x]</span>`;
+
+      // Reset visual disappear timer
+      if (existing._dismissTimer) clearTimeout(existing._dismissTimer);
+      existing.classList.remove('fade-out');
+
+      existing._dismissTimer = setTimeout(() => {
+        existing.classList.add('fade-out');
+        setTimeout(() => existing.remove(), 120);
+      }, 2400);
+      return;
+    }
+
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
+    toast._baseMessage = message;
+    toast._count = 1;
     toast.textContent = message;
 
     container.appendChild(toast);
-    setTimeout(() => {
+
+    toast._dismissTimer = setTimeout(() => {
       toast.classList.add('fade-out');
       setTimeout(() => toast.remove(), 120);
-    }, 2200);
+    }, 2400);
   }
 
   /**
@@ -407,7 +429,54 @@ class UIManager {
     }, 1000);
   }
 
+  startSeekerRadarCooldown(seconds) {
+    const btn = document.getElementById('btn-panic-ping');
+    const hudPingBtn = document.getElementById('btn-hud-ping');
+    const label = document.getElementById('hud-ping-btn-label');
+    if (btn && Game.role === 'seeker') {
+      btn.classList.add('btn-cooldown');
+      btn.disabled = true;
+      btn.innerHTML = `<span>⏳</span> ${seconds}s`;
+    }
+    if (hudPingBtn) {
+      hudPingBtn.classList.add('btn-cooldown');
+      hudPingBtn.disabled = true;
+      if (label) label.textContent = `RADAR (${seconds}s)`;
+    }
+    let remaining = seconds;
+
+    if (this.seekerRadarInterval) clearInterval(this.seekerRadarInterval);
+    this.seekerRadarInterval = setInterval(() => {
+      remaining--;
+      if (remaining <= 0) {
+        clearInterval(this.seekerRadarInterval);
+        this.seekerRadarInterval = null;
+        if (btn && Game.role === 'seeker') {
+          btn.classList.remove('btn-cooldown');
+          btn.disabled = false;
+          btn.innerHTML = `<span>📡</span> Radar`;
+        }
+        if (hudPingBtn) {
+          hudPingBtn.classList.remove('btn-cooldown');
+          hudPingBtn.disabled = false;
+          if (label) label.textContent = 'RADAR PULSE';
+        }
+      } else {
+        if (btn && Game.role === 'seeker') btn.innerHTML = `<span>⏳</span> ${remaining}s`;
+        if (label) label.textContent = `RADAR (${remaining}s)`;
+      }
+    }, 1000);
+  }
+
   resetMatchUI() {
+    if (this.seekerRadarInterval) {
+      clearInterval(this.seekerRadarInterval);
+      this.seekerRadarInterval = null;
+    }
+    if (this.flareInterval) {
+      clearInterval(this.flareInterval);
+      this.flareInterval = null;
+    }
     const roster = document.getElementById('waiting-player-list');
     if (roster) roster.innerHTML = '';
 
@@ -550,6 +619,9 @@ class UIManager {
     const flareCooldownSel = document.getElementById('lobby-flare-cooldown');
     if (flareCooldownSel && settings.flareCooldownSeconds !== undefined) flareCooldownSel.value = settings.flareCooldownSeconds;
 
+    const radarCooldownInput = document.getElementById('lobby-radar-cooldown');
+    if (radarCooldownInput && settings.seekerRadarCooldownSeconds !== undefined) radarCooldownInput.value = settings.seekerRadarCooldownSeconds;
+
     // Update participant badges
     const chipSeeker = document.getElementById('chip-seeker-mode');
     if (chipSeeker) {
@@ -565,6 +637,12 @@ class UIManager {
     if (chipFlare) {
       const fc = settings.flareCooldownSeconds !== undefined ? settings.flareCooldownSeconds : 60;
       chipFlare.textContent = `FLARE: ${fc >= 60 ? (fc % 60 === 0 ? (fc / 60) + 'M' : (fc / 60).toFixed(1) + 'M') : fc + 'S'}`;
+    }
+
+    const chipRadar = document.getElementById('chip-radar-cooldown');
+    if (chipRadar) {
+      const rc = settings.seekerRadarCooldownSeconds !== undefined ? settings.seekerRadarCooldownSeconds : 30;
+      chipRadar.textContent = `RADAR: ${rc}S`;
     }
 
     const chipGrace = document.getElementById('chip-grace-period');
@@ -907,11 +985,33 @@ class UIManager {
     if (openTargetsBtn) openTargetsBtn.style.display = 'flex';
 
     const flareBtn = document.getElementById('btn-panic-ping');
-    if (flareBtn) flareBtn.style.display = isSeeker ? 'none' : 'flex';
+    if (flareBtn) {
+      flareBtn.style.display = 'flex';
+      if (isSeeker) {
+        flareBtn.innerHTML = `<span>📡</span> Radar`;
+        flareBtn.title = 'Seeker Radar Pulse';
+      } else {
+        flareBtn.innerHTML = `<span>📍</span> Flare`;
+        flareBtn.title = 'Drop Emergency Flare';
+      }
+    }
 
+    const hudPingBtn = document.getElementById('btn-hud-ping');
     const hudPingLabel = document.getElementById('hud-ping-btn-label');
     if (hudPingLabel) {
-      hudPingLabel.textContent = isSeeker ? 'RADAR PULSE' : 'DROP PING';
+      if (isSeeker) {
+        hudPingLabel.textContent = this.seekerRadarInterval ? hudPingLabel.textContent : 'RADAR PULSE';
+        if (hudPingBtn) {
+          hudPingBtn.classList.add('btn-seeker-radar');
+          hudPingBtn.classList.remove('btn-runner-ping');
+        }
+      } else {
+        hudPingLabel.textContent = this.flareInterval ? hudPingLabel.textContent : 'DROP PING';
+        if (hudPingBtn) {
+          hudPingBtn.classList.remove('btn-seeker-radar');
+          hudPingBtn.classList.add('btn-runner-ping');
+        }
+      }
     }
 
     const radarContainer = document.querySelector('.radar-container');
@@ -1134,6 +1234,7 @@ class UIManager {
       const rawBoundary = parseInt(document.getElementById('lobby-boundary').value, 10);
       const boundary = isNaN(rawBoundary) ? 0 : Math.max(0, rawBoundary);
       const flareCooldown = parseInt(document.getElementById('lobby-flare-cooldown')?.value, 10) || 60;
+      const radarCooldown = parseInt(document.getElementById('lobby-radar-cooldown')?.value, 10) || 30;
 
       const updated = {
         seekerTrackingMode: seekerMode,
@@ -1144,7 +1245,8 @@ class UIManager {
         runnerCaptureMode: captureMode,
         requireTagConfirmation: tagConfirm,
         boundaryRadiusMeters: boundary,
-        flareCooldownSeconds: flareCooldown
+        flareCooldownSeconds: flareCooldown,
+        seekerRadarCooldownSeconds: radarCooldown
       };
 
       Config.save(updated);
@@ -1153,7 +1255,7 @@ class UIManager {
       this.showToast('Tactical rules updated for squad', 'info');
     };
 
-    ['lobby-seeker-mode', 'lobby-runner-interval', 'lobby-grace-period', 'lobby-match-duration', 'lobby-tag-distance', 'lobby-capture-mode', 'lobby-tag-confirm', 'lobby-boundary', 'lobby-flare-cooldown'].forEach(id => {
+    ['lobby-seeker-mode', 'lobby-runner-interval', 'lobby-grace-period', 'lobby-match-duration', 'lobby-tag-distance', 'lobby-capture-mode', 'lobby-tag-confirm', 'lobby-boundary', 'lobby-flare-cooldown', 'lobby-radar-cooldown'].forEach(id => {
       const el = document.getElementById(id);
       if (el) {
         el.onchange = handleLobbyConfigChange;

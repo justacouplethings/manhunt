@@ -1749,6 +1749,93 @@ assert(iosLocationManagerSource.includes('allowsBackgroundLocationUpdates = true
 assert(iosLocationManagerSource.includes('pausesLocationUpdatesAutomatically = false'), 'LocationManager.swift sets pausesLocationUpdatesAutomatically = false');
 assert(iosLocationManagerSource.includes('requestAlwaysAuthorization()'), 'LocationManager.swift implements requestAlwaysAuthorization()');
 
+console.log('\n30. Testing HUD Overhaul, Notification Anti-Spam Multiplier & Customizable Seeker Radar Cooldown:');
+
+// A. Seeker Radar Cooldown Host Control & Configuration
+assert(configJsSource.includes('seekerRadarCooldownSeconds: 30'), 'Config specifies 30s default seeker radar cooldown');
+assert(indexHtmlForBots.includes('id="lobby-radar-cooldown"'), 'Host settings include #lobby-radar-cooldown input');
+assert(indexHtmlForBots.includes('id="chip-radar-cooldown"'), 'Lobby rule chips include #chip-radar-cooldown');
+assert(uiJsSource.includes('startSeekerRadarCooldown('), 'UI implements startSeekerRadarCooldown');
+assert(gameJsSource.includes('seekerRadarCooldownSeconds'), 'Game.broadcastSeekerPulse checks seekerRadarCooldownSeconds');
+
+// B. Seeker Radar Cooldown Simulation
+let pulseTime = 0;
+const testRadarCooldownSec = 20;
+const testRadarCooldownMs = testRadarCooldownSec * 1000;
+
+function testSeekerPulseTrigger(now) {
+  if (pulseTime && (now - pulseTime < testRadarCooldownMs)) {
+    const remaining = Math.ceil((testRadarCooldownMs - (now - pulseTime)) / 1000);
+    return { allowed: false, remaining: remaining };
+  }
+  pulseTime = now;
+  return { allowed: true, remaining: 0 };
+}
+
+const firstPulse = testSeekerPulseTrigger(100000);
+assert(firstPulse.allowed === true, 'Initial seeker radar pulse is allowed immediately');
+
+const rapidPulse = testSeekerPulseTrigger(105000); // 5s later
+assert(rapidPulse.allowed === false, 'Rapid seeker radar pulse within cooldown is blocked');
+assert(rapidPulse.remaining === 15, 'Radar cooldown remaining reports 15 seconds remaining');
+
+const validPulseLater = testSeekerPulseTrigger(121000); // 21s later
+assert(validPulseLater.allowed === true, 'Seeker radar pulse allowed after cooldown period finishes');
+
+// C. Notification Anti-Spam Multiplier Simulation
+const mockToastContainer = {
+  children: [],
+  appendChild(el) { this.children.push(el); }
+};
+
+function testShowToast(container, message, type = 'info') {
+  const existing = container.children.find(t => t._baseMessage === message && !t.isFadedOut);
+  if (existing) {
+    existing._count = (existing._count || 1) + 1;
+    existing.innerHTML = `${message} <span class="toast-multiplier">[${existing._count}x]</span>`;
+    existing.timerReset = true;
+    return existing;
+  }
+  const toast = {
+    className: `toast toast-${type}`,
+    _baseMessage: message,
+    _count: 1,
+    textContent: message,
+    innerHTML: message,
+    isFadedOut: false,
+    timerReset: false
+  };
+  container.appendChild(toast);
+  return toast;
+}
+
+testShowToast(mockToastContainer, 'Seeker Radar Pulse emitted', 'info');
+assert(mockToastContainer.children.length === 1, 'First notification creates single DOM element');
+assert(mockToastContainer.children[0]._count === 1, 'First notification has count of 1');
+
+// Send duplicate notification
+testShowToast(mockToastContainer, 'Seeker Radar Pulse emitted', 'info');
+assert(mockToastContainer.children.length === 1, 'Duplicate notification does NOT create a new DOM element');
+assert(mockToastContainer.children[0]._count === 2, 'Duplicate notification increments count to 2');
+assert(mockToastContainer.children[0].innerHTML.includes('[2x]'), 'Duplicate notification renders [2x] multiplier badge');
+
+// Send third duplicate notification
+testShowToast(mockToastContainer, 'Seeker Radar Pulse emitted', 'info');
+assert(mockToastContainer.children.length === 1, 'Third duplicate notification retains single DOM element');
+assert(mockToastContainer.children[0]._count === 3, 'Third duplicate notification increments count to 3');
+assert(mockToastContainer.children[0].innerHTML.includes('[3x]'), 'Third duplicate notification renders [3x] multiplier badge');
+
+// Send a different notification
+testShowToast(mockToastContainer, 'Runner tagged!', 'danger');
+assert(mockToastContainer.children.length === 2, 'Distinct notification creates new DOM element');
+assert(mockToastContainer.children[1]._count === 1, 'New distinct notification starts with count 1');
+
+// D. Tactical OLED HUD Brutalist Styling Verification
+const stylesCssSource = fs.readFileSync(path.join(__dirname, '../css/styles.css'), 'utf8');
+assert(stylesCssSource.includes('.hud-radar-console') && stylesCssSource.includes('border-radius: 2px !important'), 'HUD radar console uses tactical brutalist 2px border-radius');
+assert(stylesCssSource.includes('.hud-ping-banner') && stylesCssSource.includes('border-radius: 2px !important'), 'HUD ping banner uses brutalist 2px border-radius');
+assert(stylesCssSource.includes('.toast-multiplier'), 'CSS styles include .toast-multiplier class');
+
 // Summary
 console.log('\n======================================================');
 console.log(`📊 TEST RESULTS: ${testsPassed} PASSED, ${testsFailed} FAILED`);

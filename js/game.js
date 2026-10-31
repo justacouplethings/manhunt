@@ -52,6 +52,7 @@ class ManhuntGame {
     this.boundaryRadiusMeters = 1500;
     this.isOutOfBounds = false;
     this.lastFlareTimestamp = 0;
+    this.lastSeekerPulseTime = 0;
     this.lastRunnerLiveSend = 0;
 
     // Static dropped pings & flares (Strict Static Compass/Distance Tracking)
@@ -97,6 +98,7 @@ class ManhuntGame {
     this.lastRunnerLiveSend = 0;
     this.lastRunnerPingTime = 0;
     this.lastFlareTimestamp = 0;
+    this.lastSeekerPulseTime = 0;
     this.lastProximityAlertTime = 0;
     this.lastHunterProximityAlertTime = 0;
     this.nearestOpponentDistance = null;
@@ -956,10 +958,29 @@ class ManhuntGame {
   }
 
   broadcastSeekerPulse() {
+    if (this.role !== 'seeker') return;
+    if (this.isSeekerBlinded) {
+      UI.showToast('❄️ Radar systems are blinded by Freeze Tagger!', 'warning');
+      return;
+    }
     if (!this.lastSelfCoords) {
       UI.showToast('Acquiring GPS fix for radar pulse...', 'warning');
       return;
     }
+
+    const cooldownSec = Config.settings.seekerRadarCooldownSeconds !== undefined ? Config.settings.seekerRadarCooldownSeconds : 30;
+    const cooldownMs = cooldownSec * 1000;
+    const now = Date.now();
+
+    if (this.lastSeekerPulseTime && (now - this.lastSeekerPulseTime < cooldownMs)) {
+      const remaining = Math.ceil((cooldownMs - (now - this.lastSeekerPulseTime)) / 1000);
+      UI.showToast(`Radar recharging: ${remaining}s remaining`, 'warning');
+      return;
+    }
+
+    this.lastSeekerPulseTime = now;
+    UI.startSeekerRadarCooldown(cooldownSec);
+
     this.recordStaticPing(Network.playerId, this.lastSelfCoords.lat, this.lastSelfCoords.lng, this.nickname, 'ping');
     Network.broadcast('telemetry', {
       lat: this.lastSelfCoords.lat,

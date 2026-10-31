@@ -232,7 +232,11 @@
             </div>
           </div>
 
-          <div style="display:grid; grid-template-columns:1fr; gap:10px; margin-top:10px;">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
+            <div class="input-group" style="margin-bottom:0;">
+              <label class="input-label" for="lobby-radar-cooldown">Seeker Radar Pulse Cooldown (Sec)</label>
+              <input type="number" id="lobby-radar-cooldown" class="tactical-input" min="5" max="300" step="5" value="30" placeholder="Cooldown in sec (e.g. 30)">
+            </div>
             <div class="input-group" style="margin-bottom:0;">
               <label class="input-label" for="lobby-boundary">Play Boundary Radius (Meters)</label>
               <input type="number" id="lobby-boundary" class="tactical-input" min="0" max="50000" step="50" value="1500" placeholder="Boundary in meters (0 = Off)">
@@ -252,6 +256,7 @@
             <span class="status-badge status-online" id="chip-seeker-mode">SEEKER: LIVE</span>
             <span class="status-badge status-online" id="chip-runner-ping">RUNNER PING: 5M</span>
             <span class="status-badge status-online" id="chip-flare-cooldown">FLARE: 60S</span>
+            <span class="status-badge status-online" id="chip-radar-cooldown">RADAR: 30S</span>
             <span class="status-badge status-online" id="chip-grace-period">GRACE: 3M</span>
             <span class="status-badge status-online" id="chip-match-duration">DURATION: 45M</span>
             <span class="status-badge status-online" id="chip-tag-distance">TAG: 15M</span>
